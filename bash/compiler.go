@@ -34,6 +34,7 @@ type state struct {
 	scanner.Scanner
 	imports   map[string]string
 	funcs     map[string]shFunc
+	vars      map[string]string
 	cl        []string
 	useExFor  bool
 	lastToken rune
@@ -168,6 +169,9 @@ func (s *state) readExpression() string {
 		if tok == scanner.String {
 			t = escapeShellString(t)
 		}
+		if mode != scanner.String {
+			mode = tok // TODO: detect var type
+		}
 		if tok == scanner.Ident {
 			if t == "true" {
 				tok = scanner.Int
@@ -176,9 +180,9 @@ func (s *state) readExpression() string {
 				tok = scanner.Int
 				t = "0"
 			}
-		}
-		if mode != scanner.String {
-			mode = tok // TODO: detect var type
+			if s.vars[t] == "string" {
+				mode = scanner.String
+			}
 		}
 		if tok == scanner.Ident && (s.Peek() == '(' || s.Peek() == '.') {
 			// TODO func call
@@ -221,7 +225,13 @@ func (s *state) procVar(name string, readonly bool) {
 			s.Write("-r ")
 		}
 	}
-	s.Writeln(name + "=" + s.readExpression())
+	v := s.readExpression()
+	if strings.HasPrefix(v, `"`) {
+		s.vars[name] = "string"
+	} else {
+		s.vars[name] = "" // TODO
+	}
+	s.Writeln(name + "=" + v)
 }
 
 func (s *state) procReturn() {
@@ -242,6 +252,7 @@ func (s *state) procReturn() {
 
 func (s *state) procFunc() {
 	name := ""
+	arg := ""
 	for tok := s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
 		if name == "" && tok == scanner.Ident {
 			name = s.TokenText()
@@ -254,11 +265,16 @@ func (s *state) procFunc() {
 				s.cl = append(s.cl, "}")
 			}
 		}
+		if tok == scanner.Ident && arg != "" {
+			s.vars[arg] = s.TokenText()
+			arg = ""
+		}
 		if tok == '(' || tok == ',' {
 			tok = s.Scan()
 			if tok == scanner.Ident {
+				arg = s.TokenText()
 				s.Indent()
-				s.Writeln("local " + s.TokenText() + `="$1"; shift`)
+				s.Writeln("local " + arg + `="$1"; shift`)
 			} else if tok == ')' {
 				break
 			}
@@ -417,6 +433,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"strconv.Itoa":    {shName: "echo"},
 		"bash.StatusCode": {shName: "echo"},
 	}
+	s.vars = map[string]string{}
 
 	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
 		if tok == '}' && len(s.cl) > 0 {
