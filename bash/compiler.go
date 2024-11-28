@@ -27,7 +27,7 @@ func escapeShellString(s string) string {
 type shFunc struct {
 	shName   string
 	retTypes []string
-	passthru bool
+	convFunc func(arg ...string) string
 }
 
 type state struct {
@@ -118,17 +118,16 @@ func (s *state) readFuncCall(pkgref, name string, resultValue bool) string {
 
 	var args []string
 	for s.lastToken != scanner.EOF {
-		if f.passthru {
-			args = append(args, trimQuote(s.readExpression()))
-		} else {
-			args = append(args, addQuote(s.readExpression()))
-		}
+		args = append(args, addQuote(s.readExpression()))
 		if s.lastToken == ')' {
 			break
 		}
 	}
 
 	cmd := name + " " + strings.Join(args, " ")
+	if f.convFunc != nil {
+		cmd = f.convFunc(args...)
+	}
 	if resultValue {
 		if len(f.retTypes) > 0 && f.retTypes[0] == "StatusCode" {
 			// TODO: stdout...
@@ -136,16 +135,15 @@ func (s *state) readFuncCall(pkgref, name string, resultValue bool) string {
 		} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
 			cmd += " && echo \"$_tmp\""
 		}
-		cmd = "\"`" + cmd + "`\""
-		if name == "echo" && len(args) == 1 {
-			cmd = args[0]
+		if len(f.retTypes) > 0 && f.retTypes[0] != "_DIRECT" {
+			cmd = "\"`" + cmd + "`\""
 		}
 	} else {
 		if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
 			cmd += " >/dev/null"
 		}
 	}
-	return cmd
+	return strings.TrimSpace(cmd)
 }
 
 func (s *state) readExpression() string {
@@ -419,19 +417,24 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"bash.Export":  {shName: "export"},
 		"bash.Pwd":     {shName: "pwd", retTypes: []string{"StdoutString"}},
 		"bash.Cd":      {shName: "cd"},
-		"bash.Exec":    {shName: "", retTypes: []string{"TempVarString", "StatusCode"}, passthru: true},
-		"bash.Read":    {shName: `read _tmp`, retTypes: []string{"TempVarString", "StatusCode"}},
+		"bash.Exec": {shName: "", retTypes: []string{"StdoutString", "StatusCode"},
+			convFunc: func(arg ...string) string { return trimQuote(arg[0]) }},
+		"bash.Read": {shName: `read _tmp`, retTypes: []string{"TempVarString", "StatusCode"}},
+		"bash.SubStr": {shName: "", retTypes: []string{"_DIRECT"},
+			convFunc: func(arg ...string) string {
+				return "\"${" + trimQuote(arg[0])[1:] + ":" + arg[1] + ":" + arg[2] + "}\""
+			}},
 		// fmt
 		"fmt.Println": {shName: "echo"},
 		"fmt.Print":   {shName: "echo -n"},
 		// os
 		"os.Exit": {shName: "exit"},
 		// TODO: cast
-		"int":             {shName: "echo"},
-		"string":          {shName: "echo"},
-		"strconv.Atoi":    {shName: "echo"},
-		"strconv.Itoa":    {shName: "echo"},
-		"bash.StatusCode": {shName: "echo"},
+		"int":             {shName: "", retTypes: []string{"_DIRECT"}},
+		"string":          {shName: "", retTypes: []string{"_DIRECT"}},
+		"strconv.Atoi":    {shName: "", retTypes: []string{"_DIRECT"}},
+		"strconv.Itoa":    {shName: "", retTypes: []string{"_DIRECT"}},
+		"bash.StatusCode": {shName: "", retTypes: []string{"_DIRECT"}},
 	}
 	s.vars = map[string]string{}
 

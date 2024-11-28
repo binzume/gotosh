@@ -75,6 +75,10 @@ func Pwd() StdoutString {
 func Export(s ...string) {
 }
 
+func SubStr(s string, pos, len int) string {
+	return s[pos : pos+len]
+}
+
 // TODO: coreutil.Sleep
 func Sleep(t float32) {
 }
