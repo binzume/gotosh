@@ -20,6 +20,10 @@ func addQuote(s string) string {
 	return s
 }
 
+func varName(s string) string {
+	return trimQuote(s)[1:]
+}
+
 func escapeShellString(s string) string {
 	return strings.ReplaceAll(s, "$", "\\$")
 }
@@ -215,7 +219,6 @@ func (s *state) readExpression() string {
 }
 
 func (s *state) procVar(name string, readonly bool) {
-	s.Scan() // skip =
 	s.Indent()
 	if s.funcName != "" {
 		s.Write("local ")
@@ -229,7 +232,11 @@ func (s *state) procVar(name string, readonly bool) {
 	} else {
 		s.vars[name] = "" // TODO
 	}
-	s.Writeln(name + "=" + v)
+	if v != "" {
+		s.Writeln(name + "=" + v)
+	} else {
+		s.Writeln(name)
+	}
 }
 
 func (s *state) procReturn() {
@@ -358,6 +365,7 @@ func (s *state) procSentense(t string) {
 		tok = s.Scan()
 	}
 	if tok == ':' {
+		s.Scan()
 		s.procVar(t, false)
 		if second != "" {
 			s.Indent()
@@ -422,7 +430,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"bash.Read": {shName: `read _tmp`, retTypes: []string{"TempVarString", "StatusCode"}},
 		"bash.SubStr": {shName: "", retTypes: []string{"_DIRECT"},
 			convFunc: func(arg ...string) string {
-				return "\"${" + trimQuote(arg[0])[1:] + ":" + arg[1] + ":" + arg[2] + "}\""
+				return "\"${" + varName(arg[0]) + ":" + arg[1] + ":" + arg[2] + "}\""
 			}},
 		// fmt
 		"fmt.Println": {shName: "echo"},
@@ -435,6 +443,19 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"strconv.Atoi":    {shName: "", retTypes: []string{"_DIRECT"}},
 		"strconv.Itoa":    {shName: "", retTypes: []string{"_DIRECT"}},
 		"bash.StatusCode": {shName: "", retTypes: []string{"_DIRECT"}},
+		// slice
+		"len": {shName: "", retTypes: []string{"_DIRECT"},
+			convFunc: func(arg ...string) string {
+				if s.vars[varName(arg[0])] == "string" {
+					return "${#" + varName(arg[0]) + "}"
+				}
+				return "${#" + varName(arg[0]) + "[@]}"
+			}},
+		"append": {shName: "", retTypes: []string{"_DIRECT"},
+			convFunc: func(arg ...string) string {
+				// TODO: a=append(b,c)
+				return "'';" + varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
+			}},
 	}
 	s.vars = map[string]string{}
 
@@ -473,10 +494,20 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 				s.procFunc()
 			case "var":
 				s.Scan()
-				s.procVar(s.TokenText(), false)
+				t = s.TokenText()
+				s.vars[t] = ""
+				for ; tok != scanner.EOF && tok != '=' && s.Peek() != '\n'; tok = s.Scan() {
+					s.vars[t] += s.TokenText()
+				}
+				s.procVar(t, false)
 			case "const":
 				s.Scan()
-				s.procVar(s.TokenText(), true)
+				t = s.TokenText()
+				s.vars[t] = ""
+				for ; tok != scanner.EOF && tok != '=' && s.Peek() != '\n'; tok = s.Scan() {
+					s.vars[t] += s.TokenText()
+				}
+				s.procVar(t, true)
 			default:
 				s.procSentense(t)
 			}
