@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 )
 
 type StdoutInt = int
@@ -81,4 +82,5 @@ func SubStr(s string, pos, len int) string {
 
 // TODO: coreutil.Sleep
 func Sleep(t float32) {
+	time.Sleep(time.Duration(t*1000) * time.Millisecond)
 }

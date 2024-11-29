@@ -7,7 +7,7 @@ Goのコードをシェルスクリプトに変換するやつです。限られ
 Supported:
 
 - types: int, string
-- go keyword, func, if, else, for, break, continue, const, var, append, len
+- go keyword, func, if, else, for, break, continue, const, var, append, len, go
 - commands: pwd, cd, export, echo, printf, read, exit, sleep.
 
 

@@ -559,6 +559,9 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 					}
 				}
 				s.procVar(t, true)
+			case "go":
+				s.Indent()
+				s.Writeln(s.readExpression().AsExec() + " &")
 			default:
 				s.procSentense(t)
 			}
