@@ -7,7 +7,7 @@ Goのコードをシェルスクリプトに変換するやつです。限られ
 Supported:
 
 - types: int, string
-- go keyword, func, if, else, for, break, continue, const, var
+- go keyword, func, if, else, for, break, continue, const, var, append, len
 - commands: pwd, cd, export, echo, printf, read, exit, sleep.
 
 
@@ -23,7 +23,6 @@ Function return value:
 TODO:
 
 - error type
-- slice support
 - jq, curl support
 - Convert bash/compiler.go to compiler.sh
 

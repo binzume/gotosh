@@ -34,6 +34,34 @@ type shFunc struct {
 	convFunc func(arg ...string) string
 }
 
+type shExpression struct {
+	cmd      string
+	retVar   string
+	retTypes []string
+}
+
+func (f *shExpression) AsValue() string {
+	cmd := f.cmd
+	if len(f.retTypes) > 0 && f.retTypes[0] == "StatusCode" {
+		// TODO: stdout...
+		cmd += " >&2; echo $?"
+	} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
+		cmd += " && echo \"$_tmp\""
+	}
+	if len(f.retTypes) > 0 && f.retTypes[0] != "_DIRECT" && f.retTypes[0] != "_ARG1" {
+		cmd = "\"`" + cmd + "`\""
+	}
+	return strings.TrimSpace(cmd)
+}
+
+func (f *shExpression) AsExec() string {
+	cmd := f.cmd
+	if len(f.retTypes) > 0 && f.retTypes[0] == "StdoutString" {
+		cmd += " >/dev/null"
+	}
+	return strings.TrimSpace(cmd)
+}
+
 type state struct {
 	scanner.Scanner
 	imports   map[string]string
@@ -110,7 +138,7 @@ func (s *state) parseImport() {
 	}
 }
 
-func (s *state) readFuncCall(pkgref, name string, resultValue bool) string {
+func (s *state) readFuncCall(pkgref, name string) *shExpression {
 	if pkgref != "" {
 		pkg := s.imports[pkgref]
 		name = path.Base(pkg) + "." + name
@@ -122,7 +150,7 @@ func (s *state) readFuncCall(pkgref, name string, resultValue bool) string {
 
 	var args []string
 	for s.lastToken != scanner.EOF {
-		args = append(args, addQuote(s.readExpression()))
+		args = append(args, addQuote(s.readExpression().AsValue()))
 		if s.lastToken == ')' {
 			break
 		}
@@ -132,29 +160,22 @@ func (s *state) readFuncCall(pkgref, name string, resultValue bool) string {
 	if f.convFunc != nil {
 		cmd = f.convFunc(args...)
 	}
-	if resultValue {
-		if len(f.retTypes) > 0 && f.retTypes[0] == "StatusCode" {
-			// TODO: stdout...
-			cmd += " >&2; echo $?"
-		} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
-			cmd += " && echo \"$_tmp\""
-		}
-		if len(f.retTypes) > 0 && f.retTypes[0] != "_DIRECT" {
-			cmd = "\"`" + cmd + "`\""
-		}
-	} else {
-		if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
-			cmd += " >/dev/null"
-		}
+	retVar := ""
+	if len(f.retTypes) > 0 && f.retTypes[0] == "_ARG1" && len(args) > 0 {
+		retVar = varName(args[0])
 	}
-	return strings.TrimSpace(cmd)
+	return &shExpression{cmd: cmd, retTypes: f.retTypes, retVar: retVar}
 }
 
-func (s *state) readExpression() string {
+func (s *state) readExpression() *shExpression {
 	exp := ""
 	tokens := 0
 	nest := 0
+	var funcRet *shExpression
 	var mode rune = scanner.Int
+	if s.Peek() == 13 || s.Peek() == 10 {
+		return &shExpression{cmd: ""}
+	}
 	for s.lastToken = s.Scan(); s.lastToken != scanner.EOF; s.lastToken = s.Scan() {
 		tok := s.lastToken
 		if nest == 0 && tok == ')' || tok == ',' || tok == ';' || tok == '{' {
@@ -197,9 +218,8 @@ func (s *state) readExpression() string {
 				t = s.TokenText()
 				s.Scan()
 			}
-
-			call := s.readFuncCall(pkgref, t, true)
-			exp += call
+			funcRet = s.readFuncCall(pkgref, t)
+			exp += funcRet.AsValue()
 		} else if tok == scanner.Ident && mode == scanner.String {
 			exp += "\"$" + t + "\""
 		} else {
@@ -215,7 +235,10 @@ func (s *state) readExpression() string {
 	} else if tokens > 1 && mode != scanner.String {
 		exp = "$(( " + exp + " ))"
 	}
-	return exp
+	if funcRet != nil && exp == funcRet.AsValue() {
+		return funcRet
+	}
+	return &shExpression{cmd: exp}
 }
 
 func (s *state) procVar(name string, readonly bool) {
@@ -226,21 +249,26 @@ func (s *state) procVar(name string, readonly bool) {
 			s.Write("-r ")
 		}
 	}
-	v := s.readExpression()
-	if strings.HasPrefix(v, `"`) {
-		s.vars[name] = "string"
-	} else {
-		s.vars[name] = "" // TODO
+	v := s.readExpression().AsValue()
+	if s.vars[name] == "" {
+		if strings.HasPrefix(v, `"`) {
+			s.vars[name] = "string"
+		} else {
+			s.vars[name] = "" // TODO
+		}
+	}
+	if v == "" && strings.HasPrefix(s.vars[name], "[]") {
+		v = "()"
 	}
 	if v != "" {
 		s.Writeln(name + "=" + v)
-	} else {
+	} else if s.funcName != "" {
 		s.Writeln(name)
 	}
 }
 
 func (s *state) procReturn() {
-	v := s.readExpression()
+	v := s.readExpression().AsValue()
 	retTypes := s.funcs[s.funcName].retTypes
 	if len(retTypes) > 0 && retTypes[0] == "StatusCode" {
 		s.Indent()
@@ -296,17 +324,19 @@ func (s *state) procFunc() {
 
 func (s *state) procFor() {
 	f := []string{"", "", ""}
+
 	n := 0
-	for tok := s.Scan(); tok != scanner.EOF && tok != '{'; tok = s.Scan() {
-		if tok == ';' {
-			n++
-			continue
-		}
-		t := s.TokenText()
-		if t != ":" {
-			f[n] += t
+	for s.lastToken != scanner.EOF && n < 3 {
+		// TODO
+		f[n] = strings.ReplaceAll(s.readExpression().AsValue(), ":=", "=")
+		f[n] = strings.TrimPrefix(f[n], "$(( ")
+		f[n] = strings.TrimSuffix(f[n], " ))")
+		n++
+		if s.lastToken == '{' {
+			break
 		}
 	}
+
 	if s.useExFor {
 		s.Indent()
 		s.Writeln("for (( " + f[0] + "; " + f[1] + "; " + f[2] + " )); do")
@@ -332,7 +362,7 @@ func (s *state) procFor() {
 }
 
 func (s *state) procIf() {
-	condition := s.readExpression()
+	condition := s.readExpression().AsValue()
 	s.Indent()
 	s.Writeln("if [ " + condition + " -ne 0 ]; then")
 	s.cl = append(s.cl, "fi")
@@ -344,7 +374,7 @@ func (s *state) procElse() {
 	condition := ""
 	for tok := s.Scan(); tok != scanner.EOF && tok != '{'; tok = s.Scan() {
 		if tok == scanner.Ident && s.TokenText() == "if" {
-			condition = s.readExpression()
+			condition = s.readExpression().AsValue()
 			break
 		}
 	}
@@ -373,7 +403,12 @@ func (s *state) procSentense(t string) {
 		}
 	} else if tok == '=' {
 		s.Indent()
-		s.Writeln(t + "=" + s.readExpression())
+		v := s.readExpression()
+		if t == v.retVar {
+			s.Writeln(v.AsExec())
+		} else {
+			s.Writeln(t + "=" + v.AsValue())
+		}
 		if second != "" {
 			s.Indent()
 			s.Writeln(second + "=$?")
@@ -384,10 +419,10 @@ func (s *state) procSentense(t string) {
 			name := s.TokenText()
 			s.Scan() // (
 			s.Indent()
-			s.Writeln(s.readFuncCall(t, name, false))
+			s.Writeln(s.readFuncCall(t, name).AsExec())
 		} else {
 			s.Indent()
-			s.Writeln(s.readFuncCall("", t, false))
+			s.Writeln(s.readFuncCall("", t).AsExec())
 		}
 	} else {
 		fmt.Printf("# %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
@@ -451,10 +486,9 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 				}
 				return "${#" + varName(arg[0]) + "[@]}"
 			}},
-		"append": {shName: "", retTypes: []string{"_DIRECT"},
+		"append": {shName: "", retTypes: []string{"_ARG1"},
 			convFunc: func(arg ...string) string {
-				// TODO: a=append(b,c)
-				return "'';" + varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
+				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
 			}},
 	}
 	s.vars = map[string]string{}
@@ -496,16 +530,20 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 				s.Scan()
 				t = s.TokenText()
 				s.vars[t] = ""
-				for ; tok != scanner.EOF && tok != '=' && s.Peek() != '\n'; tok = s.Scan() {
-					s.vars[t] += s.TokenText()
+				if s.Peek() != '\n' && s.Peek() != '\r' {
+					for tok = s.Scan(); tok != scanner.EOF && tok != '=' && s.Peek() != '\n' && s.Peek() != '\r'; tok = s.Scan() {
+						s.vars[t] += s.TokenText()
+					}
 				}
 				s.procVar(t, false)
 			case "const":
 				s.Scan()
 				t = s.TokenText()
 				s.vars[t] = ""
-				for ; tok != scanner.EOF && tok != '=' && s.Peek() != '\n'; tok = s.Scan() {
-					s.vars[t] += s.TokenText()
+				if s.Peek() != '\n' && s.Peek() != '\r' {
+					for tok = s.Scan(); tok != scanner.EOF && tok != '=' && s.Peek() != '\n' && s.Peek() != '\r'; tok = s.Scan() {
+						s.vars[t] += s.TokenText()
+					}
 				}
 				s.procVar(t, true)
 			default:
