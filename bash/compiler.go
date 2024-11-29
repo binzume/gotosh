@@ -471,7 +471,20 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"fmt.Println": {shName: "echo"},
 		"fmt.Print":   {shName: "echo -n"},
 		// os
-		"os.Exit": {shName: "exit"},
+		"os.Exit":     {shName: "exit"},
+		"os.Getpid":   {shName: "$$"},
+		"os.Getppid":  {shName: "$PPID"},
+		"os.Getuid":   {shName: "$UID"},
+		"os.Geteuid":  {shName: "${EUID:-$UID}"},
+		"os.Getgid":   {shName: "$GID"},
+		"os.Getegid":  {shName: "${EGID:-$GID}"},
+		"os.Hostname": {shName: "hostname", retTypes: []string{"StdoutString", "StatusCode"}},
+		"os.Getenv": {shName: "", convFunc: func(arg ...string) string {
+			return "\"${" + trimQuote(arg[0]) + "}\""
+		}},
+		"os.Setenv": {shName: "", convFunc: func(arg ...string) string {
+			return "export " + trimQuote(arg[0]) + "=" + arg[1]
+		}},
 		// TODO: cast
 		"int":             {shName: "", retTypes: []string{"_DIRECT"}},
 		"string":          {shName: "", retTypes: []string{"_DIRECT"}},
