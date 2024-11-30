@@ -376,7 +376,8 @@ func (s *state) procReturn() {
 
 func (s *state) procFunc() {
 	name := ""
-	arg := ""
+	var args []string
+	var argTypes []string
 	for tok := s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
 		if name == "" && tok == scanner.Ident {
 			name = s.TokenText()
@@ -388,20 +389,30 @@ func (s *state) procFunc() {
 				s.Writeln("function " + name + "() {")
 				s.cl = append(s.cl, "}")
 			}
+			continue
 		}
 		if tok == '(' || tok == ',' {
 			tok = s.Scan()
 			if tok == scanner.Ident {
-				arg = s.TokenText()
-				s.Indent()
-				s.Writeln("local " + arg + `="$1"; shift`)
+				args = append(args, s.TokenText())
 			} else if tok == ')' {
 				break
 			}
-		} else if (tok == scanner.Ident || tok == '[' || tok == '*') && arg != "" {
+		} else if (tok == scanner.Ident || tok == '[' || tok == '*') && len(args) > len(argTypes) {
 			s.lastToken = tok
-			s.vars[arg] = s.readType(true)
-			arg = ""
+			t := s.readType(true)
+			for len(args) > len(argTypes) {
+				s.vars[args[len(argTypes)]] = t
+				argTypes = append(argTypes, t)
+			}
+		}
+	}
+	for _, arg := range args {
+		s.Indent()
+		if strings.HasPrefix(s.vars[arg], "[]") {
+			s.Writeln("local " + arg + `=("$@")`)
+		} else {
+			s.Writeln("local " + arg + `="$1"; shift`)
 		}
 	}
 	s.lastToken = s.Scan()
