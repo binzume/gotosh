@@ -13,13 +13,6 @@ func trimQuote(s string) string {
 	return strings.Trim(s, "\"`")
 }
 
-func addQuote(s string) string {
-	if strings.HasPrefix(s, "$") && !strings.HasPrefix(s, "$((") {
-		return `"` + s + `"`
-	}
-	return s
-}
-
 func varName(s string) string {
 	return strings.Trim(trimQuote(s), "${}[@]")
 }
@@ -38,7 +31,7 @@ func escapeShellString(s string) string {
 type shFunc struct {
 	shName   string
 	retTypes []string
-	convFunc func(arg ...string) string
+	convFunc func(arg []string) string
 }
 
 type shExpression struct {
@@ -58,7 +51,7 @@ func (f *shExpression) AsValue() string {
 		// TODO: stdout...
 		cmd = "`" + cmd + " >&2; echo $?`"
 	} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
-		cmd += " && echo \"$_tmp\""
+		cmd = "`" + cmd + " >&2 && echo \"$_tmp\"`"
 	} else if len(f.retTypes) > 0 && f.retTypes[0] == "_INT_EXP" {
 		cmd = "$(( " + cmd + " ))"
 	} else if f.StdoutValue() && len(f.retTypes) > 0 && strings.HasPrefix(f.retTypes[0], "[]") {
@@ -78,15 +71,21 @@ func (f *shExpression) AsExec() string {
 
 type state struct {
 	scanner.Scanner
-	imports   map[string]string
-	funcs     map[string]shFunc
-	vars      map[string]string
-	cl        []string
-	useExFor  bool
-	lastToken rune
-	funcName  string
-	w         io.Writer
-	bufLine   string
+	imports      map[string]string
+	funcs        map[string]shFunc
+	vars         map[string]string
+	cl           []string
+	useExFor     bool
+	lastToken    rune
+	funcName     string
+	w            io.Writer
+	bufLine      string
+	middleofline bool
+}
+
+func (s *state) Scan() rune {
+	s.lastToken = s.Scanner.Scan()
+	return s.lastToken
 }
 
 func (s *state) FlushLine() {
@@ -94,21 +93,30 @@ func (s *state) FlushLine() {
 		t := s.bufLine
 		s.bufLine = ""
 		s.Indent()
-		fmt.Fprintln(s.w, t)
+		s.Writeln(t)
 	}
 }
 
 func (s *state) Write(str ...any) {
+	if !s.middleofline {
+		s.Indent()
+	}
 	s.FlushLine()
 	fmt.Fprint(s.w, str...)
+	s.middleofline = true
 }
 
 func (s *state) Writeln(str ...any) {
+	if !s.middleofline {
+		s.Indent()
+	}
 	s.FlushLine()
 	fmt.Fprintln(s.w, str...)
+	s.middleofline = false
 }
 
 func (s *state) Indent() {
+	s.middleofline = true
 	s.Write(strings.Repeat("  ", len(s.cl)))
 }
 
@@ -122,53 +130,46 @@ func (s *state) EndBlock() {
 	}
 }
 
-func (s *state) parseImport() {
-	tok := s.Scan()
-	if tok == '(' {
-		for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
-			if tok == ')' {
-				break
-			}
-			if tok == scanner.Ident {
-				name := s.TokenText()
-				s.Scan()
-				s.imports[name] = trimQuote(s.TokenText())
-			} else {
-				pkg := trimQuote(s.TokenText())
-				name := path.Base(pkg)
-				s.imports[name] = pkg
-			}
-		}
+func (s *state) parseImportPkg() {
+	if s.lastToken == scanner.Ident {
+		name := s.TokenText()
+		s.Scan()
+		s.imports[name] = trimQuote(s.TokenText())
 	} else {
-		if tok == scanner.Ident {
-			name := s.TokenText()
-			s.Scan()
-			s.imports[name] = trimQuote(s.TokenText())
-		} else {
-			pkg := trimQuote(s.TokenText())
-			name := path.Base(pkg)
-			s.imports[name] = pkg
-		}
+		pkg := trimQuote(s.TokenText())
+		name := path.Base(pkg)
+		s.imports[name] = pkg
 	}
 }
 
-func (s *state) readType(skipFirst bool) string {
-	if !skipFirst {
-		s.lastToken = s.Scan()
+func (s *state) parseImport() {
+	tok := s.Scan()
+	if tok == '(' {
+		for tok := s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
+			s.parseImportPkg()
+		}
+	} else {
+		s.parseImportPkg()
+	}
+}
+
+func (s *state) readType(scaned bool) string {
+	if !scaned {
+		s.Scan()
 	}
 	t := ""
 	if s.lastToken == scanner.Ident {
 		t += s.TokenText()
 		if t == "map" {
-			s.lastToken = s.Scan() // [
+			s.Scan() // [
 			t += s.TokenText()
 			t += s.readType(false)
-			s.lastToken = s.Scan() // ]
+			s.Scan() // ]
 			t += s.TokenText()
 		} else if _, ok := s.imports[t]; ok {
-			s.lastToken = s.Scan() // .
+			s.Scan() // .
 			t += s.TokenText()
-			s.lastToken = s.Scan()
+			s.Scan()
 			t += s.TokenText()
 		}
 	} else if s.lastToken == '*' {
@@ -176,7 +177,7 @@ func (s *state) readType(skipFirst bool) string {
 		t += s.readType(false)
 	} else if s.lastToken == '[' {
 		t += s.TokenText()
-		s.lastToken = s.Scan() // ]
+		s.Scan() // ]
 		t += s.TokenText()
 		t += s.readType(false)
 	}
@@ -194,16 +195,13 @@ func (s *state) readFuncCall(pkgref, name string) *shExpression {
 	}
 
 	var args []string
-	for s.lastToken != scanner.EOF {
-		args = append(args, addQuote(s.readExpression("").AsValue()))
-		if s.lastToken == ')' {
-			break
-		}
+	for s.lastToken != scanner.EOF && s.lastToken != ')' {
+		args = append(args, s.readExpression("").AsValue())
 	}
 
 	cmd := name + " " + strings.Join(args, " ")
 	if f.convFunc != nil {
-		cmd = f.convFunc(args...)
+		cmd = f.convFunc(args)
 	}
 	retVar := ""
 	if len(f.retTypes) > 0 && f.retTypes[0] == "_ARG1" && len(args) > 0 {
@@ -217,19 +215,16 @@ func (s *state) readExpression(typeHint string) *shExpression {
 	if s.Peek() == 13 || s.Peek() == 10 {
 		return &shExpression{cmd: ""}
 	}
-	s.lastToken = s.Scan()
+	s.Scan()
 	if s.lastToken == '=' {
-		s.lastToken = s.Scan()
+		s.Scan()
 	}
 	if s.lastToken == '[' {
 		t := s.readType(true)
 		s.Scan() // {
 		exp += "("
-		for s.lastToken != scanner.EOF {
+		for s.lastToken != scanner.EOF && s.lastToken != '}' {
 			exp += " " + s.readExpression(t[2:]).AsValue()
-			if s.lastToken == '}' {
-				break
-			}
 		}
 		exp += ")"
 		return &shExpression{cmd: exp, retTypes: []string{t}}
@@ -241,9 +236,9 @@ func (s *state) readExpression(typeHint string) *shExpression {
 	if typeHint == "string" {
 		mode = scanner.String
 	}
-	for ; s.lastToken != scanner.EOF; s.lastToken = s.Scan() {
+	for ; s.lastToken != scanner.EOF; s.Scan() {
 		tok := s.lastToken
-		if nest == 0 && tok == ')' || tok == ':' && s.Peek() != '=' || tok == ',' || tok == ';' || tok == ']' || tok == '{' || tok == '}' {
+		if nest == 0 && tok == ')' || typeHint != "" && tok == ':' || tok == ',' || tok == ';' || tok == ']' || tok == '{' || tok == '}' {
 			break
 		} else if tok == '(' {
 			nest++
@@ -271,7 +266,7 @@ func (s *state) readExpression(typeHint string) *shExpression {
 				tok = scanner.Int
 				t = "0"
 			} else if s.Peek() == '[' {
-				s.lastToken = s.Scan()
+				s.Scan()
 				var idx []*shExpression
 				for s.lastToken != scanner.EOF && s.lastToken != ']' {
 					idx = append(idx, s.readExpression("int"))
@@ -330,7 +325,11 @@ func (s *state) readExpression(typeHint string) *shExpression {
 }
 
 func (s *state) procVar(name string, readonly bool) {
-	s.Indent()
+	if name == "" {
+		s.Scan()
+		name = s.TokenText()
+		s.vars[name] = s.readType(false)
+	}
 	if s.funcName != "" {
 		s.Write("local ")
 		if readonly {
@@ -359,19 +358,22 @@ func (s *state) procVar(name string, readonly bool) {
 }
 
 func (s *state) procReturn() {
-	v := s.readExpression("").AsValue()
-	retTypes := s.funcs[s.funcName].retTypes
-	if len(retTypes) > 0 && retTypes[0] == "StatusCode" {
-		s.Indent()
-		s.Writeln("return ", v)
-	} else {
-		s.Indent()
-		if v != "" {
-			s.Write("echo " + v + ";") // TODO _ret=?
+	var status *shExpression
+	for _, t := range s.funcs[s.funcName].retTypes {
+		e := s.readExpression("")
+		if t == "StatusCode" {
+			status = e
+		} else if t == "TempVarString" {
+			s.Write("_tmp=" + e.AsValue() + ";") // TODO _ret=?
+		} else {
+			s.Write("echo " + e.AsValue() + ";") // TODO _ret=?
 		}
+	}
+	if status != nil {
+		s.Writeln("return ", status.AsValue())
+	} else {
 		s.Writeln("return")
 	}
-
 }
 
 func (s *state) procFunc() {
@@ -399,7 +401,6 @@ func (s *state) procFunc() {
 				break
 			}
 		} else if (tok == scanner.Ident || tok == '[' || tok == '*') && len(args) > len(argTypes) {
-			s.lastToken = tok
 			t := s.readType(true)
 			for len(args) > len(argTypes) {
 				s.vars[args[len(argTypes)]] = t
@@ -408,20 +409,19 @@ func (s *state) procFunc() {
 		}
 	}
 	for _, arg := range args {
-		s.Indent()
 		if strings.HasPrefix(s.vars[arg], "[]") {
 			s.Writeln("local " + arg + `=("$@")`)
 		} else {
 			s.Writeln("local " + arg + `="$1"; shift`)
 		}
 	}
-	s.lastToken = s.Scan()
+	s.Scan()
 	var retTypes []string
 	retType := s.readType(s.lastToken != '(')
 	if retType != "" {
 		retTypes = append(retTypes, retType)
 	}
-	for ; s.lastToken != '{' && s.lastToken != scanner.EOF; s.lastToken = s.Scan() {
+	for ; s.lastToken != '{' && s.lastToken != scanner.EOF; s.Scan() {
 	}
 	s.funcs[name] = shFunc{shName: name, retTypes: retTypes}
 }
@@ -440,7 +440,6 @@ func (s *state) procFor() {
 	}
 
 	if s.useExFor {
-		s.Indent()
 		s.Writeln("for (( " + f[0] + "; " + f[1] + "; " + f[2] + " )); do")
 		s.cl = append(s.cl, "done")
 		return
@@ -448,15 +447,13 @@ func (s *state) procFor() {
 
 	condIdx := 0
 	if n > 1 {
-		s.Indent()
 		s.Writeln(f[0])
 		condIdx = 1
 	}
 	cond := "true"
-	if n >= condIdx {
+	if n >= condIdx && f[condIdx] != "" {
 		cond = "[ $(( " + f[condIdx] + " )) -ne 0 ]"
 	}
-	s.Indent()
 	s.Writeln("while " + cond + "; do")
 	end := "done"
 	if n > 2 {
@@ -467,14 +464,12 @@ func (s *state) procFor() {
 
 func (s *state) procIf() {
 	condition := s.readExpression("bool").AsValue()
-	s.Indent()
 	s.Writeln("if [ " + condition + " -ne 0 ]; then")
 	s.cl = append(s.cl, "fi")
 }
 
 func (s *state) procElse() {
 	s.bufLine = "" // cancel fi
-	s.Indent()
 	condition := ""
 	for tok := s.Scan(); tok != scanner.EOF && tok != '{'; tok = s.Scan() {
 		if tok == scanner.Ident && s.TokenText() == "if" {
@@ -502,11 +497,9 @@ func (s *state) procSentense(t string) {
 		s.Scan()
 		s.procVar(t, false)
 		if second != "" {
-			s.Indent()
 			s.Writeln(second + "=$?")
 		}
 	} else if tok == '=' {
-		s.Indent()
 		v := s.readExpression("")
 		if t == v.retVar {
 			s.Writeln(v.AsExec())
@@ -514,7 +507,6 @@ func (s *state) procSentense(t string) {
 			s.Writeln(t + "=" + v.AsValue())
 		}
 		if second != "" {
-			s.Indent()
 			s.Writeln(second + "=$?")
 		}
 	} else if tok == '(' || s.imports[t] != "" && tok == '.' {
@@ -522,10 +514,8 @@ func (s *state) procSentense(t string) {
 			s.Scan()
 			name := s.TokenText()
 			s.Scan() // (
-			s.Indent()
 			s.Writeln(s.readFuncCall(t, name).AsExec())
 		} else {
-			s.Indent()
 			s.Writeln(s.readFuncCall("", t).AsExec())
 		}
 	} else {
@@ -544,16 +534,12 @@ func CompileFile(srcPath string) error {
 }
 
 func (s *state) Compile(r io.Reader, srcName string) error {
-
 	s.Init(r)
 	s.Filename = srcName
 	s.Mode ^= scanner.SkipComments
 	s.w = os.Stdout
-
-	s.Writeln("#!/bin/bash")
-	s.Writeln("")
-
 	s.imports = map[string]string{}
+	s.vars = map[string]string{}
 	s.funcs = map[string]shFunc{
 		"bash.Echo":    {shName: "echo"},
 		"bash.EchoN":   {shName: "echo -n"},
@@ -565,10 +551,10 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"bash.Pwd":     {shName: "pwd", retTypes: []string{"StdoutString"}},
 		"bash.Cd":      {shName: "cd"},
 		"bash.Exec": {shName: "", retTypes: []string{"StdoutString", "StatusCode"},
-			convFunc: func(arg ...string) string { return trimQuote(arg[0]) }},
+			convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
 		"bash.Read": {shName: `read _tmp`, retTypes: []string{"TempVarString", "StatusCode"}},
 		"bash.SubStr": {shName: "", retTypes: []string{"_"},
-			convFunc: func(arg ...string) string {
+			convFunc: func(arg []string) string {
 				return "\"${" + varName(arg[0]) + ":" + arg[1] + ":" + arg[2] + "}\""
 			}},
 		// fmt
@@ -583,10 +569,10 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"os.Getgid":   {shName: "$GID"},
 		"os.Getegid":  {shName: "${EGID:-$GID}"},
 		"os.Hostname": {shName: "hostname", retTypes: []string{"StdoutString", "StatusCode"}},
-		"os.Getenv": {shName: "", convFunc: func(arg ...string) string {
+		"os.Getenv": {shName: "", convFunc: func(arg []string) string {
 			return "\"${" + trimQuote(arg[0]) + "}\""
 		}},
-		"os.Setenv": {shName: "", convFunc: func(arg ...string) string {
+		"os.Setenv": {shName: "", convFunc: func(arg []string) string {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
 		// TODO: cast
@@ -597,18 +583,20 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"bash.StatusCode": {shName: "", retTypes: []string{"_"}},
 		// slice
 		"len": {shName: "", retTypes: []string{"_"},
-			convFunc: func(arg ...string) string {
+			convFunc: func(arg []string) string {
 				if s.vars[varName(arg[0])] == "string" {
 					return "${#" + varName(arg[0]) + "}"
 				}
 				return "${#" + varName(arg[0]) + "[@]}"
 			}},
 		"append": {shName: "", retTypes: []string{"_ARG1"},
-			convFunc: func(arg ...string) string {
+			convFunc: func(arg []string) string {
 				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
 			}},
 	}
-	s.vars = map[string]string{}
+
+	s.Writeln("#!/bin/sh")
+	s.Writeln("")
 
 	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
 		if tok == '}' && len(s.cl) > 0 {
@@ -617,7 +605,6 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			s.cl = append(s.cl, "")
 		} else if tok == scanner.Comment {
 			for _, c := range strings.Split(strings.Trim(s.TokenText(), "/* "), "\n") {
-				s.Indent()
 				s.Writeln("# " + c)
 			}
 		} else if tok == scanner.Ident {
@@ -634,27 +621,18 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "else":
 				s.procElse()
 			case "break":
-				s.Indent()
 				s.Writeln("break")
 			case "continue":
-				s.Indent()
 				s.Writeln("continue")
 			case "return":
 				s.procReturn()
 			case "func":
 				s.procFunc()
 			case "var":
-				s.Scan()
-				t = s.TokenText()
-				s.vars[t] = s.readType(false)
-				s.procVar(t, false)
+				s.procVar("", false)
 			case "const":
-				s.Scan()
-				t = s.TokenText()
-				s.vars[t] = s.readType(false)
-				s.procVar(t, true)
+				s.procVar("", true)
 			case "go":
-				s.Indent()
 				s.Writeln(s.readExpression("").AsExec() + " &")
 			default:
 				s.procSentense(t)
