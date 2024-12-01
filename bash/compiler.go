@@ -385,7 +385,8 @@ func (s *state) procAssign(names []string, local bool, readonly bool) {
 			s.Writeln(names[stdoutIndex])
 		}
 	}
-	for i, name := range names {
+	for ii := range names {
+		i := len(names) - ii - 1 // TODO priority on $?
 		if i != stdoutIndex {
 			if local {
 				s.Write("local ")
@@ -394,10 +395,10 @@ func (s *state) procAssign(names []string, local bool, readonly bool) {
 				}
 			}
 			vn := e.VarName(i)
-			if vn != "" && name != e.retVar {
-				s.Writeln(name + "=\"$" + vn + "\"")
+			if vn != "" && names[i] != e.retVar {
+				s.Writeln(names[i] + "=\"$" + vn + "\"")
 			} else if local {
-				s.Writeln(name)
+				s.Writeln(names[i])
 			}
 		}
 

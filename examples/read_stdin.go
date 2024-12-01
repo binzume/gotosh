@@ -1,9 +1,13 @@
 package main
 
-import "github.com/binzume/gotobsh/bash"
+import (
+	"fmt"
+
+	"github.com/binzume/gotobsh/bash"
+)
 
 func printLine(n int, s string) {
-	bash.Echo("Line", n, ":", s)
+	fmt.Println("Line", n, ":", s)
 }
 
 func main() {
