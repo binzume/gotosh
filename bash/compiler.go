@@ -396,7 +396,7 @@ func (s *state) procAssign(names []string, local bool, readonly bool) {
 			vn := e.VarName(i)
 			if vn != "" && name != e.retVar {
 				s.Writeln(name + "=\"$" + vn + "\"")
-			} else {
+			} else if local {
 				s.Writeln(name)
 			}
 		}
