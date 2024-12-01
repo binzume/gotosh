@@ -1,7 +1,6 @@
 package bash
 
 import (
-	"fmt"
 	"os"
 	"os/exec"
 	"time"
@@ -14,26 +13,6 @@ type TempVarInt = int
 type TempVarString = string
 
 var IFS = " \t\n"
-
-func Echo(params ...any) {
-	fmt.Println(params...)
-}
-
-func EchoN(params ...any) {
-	fmt.Print(params...)
-}
-
-func Printf(format string, a ...any) {
-	fmt.Printf(format, a...)
-}
-
-func Sprintf(format string, a ...any) StdoutString {
-	return fmt.Sprintf(format, a...)
-}
-
-func Exit(code int) {
-	os.Exit(code)
-}
 
 func Exec(cmd string) (StdoutString, StatusCode) {
 	out, err := exec.Command("ls", "-la").Output()
@@ -59,18 +38,6 @@ func Read() (StdoutString, StatusCode) {
 		}
 	}
 	return string(line), 0
-}
-
-func Cd(d string) StatusCode {
-	if os.Chdir(d) != nil {
-		return 1
-	}
-	return 0
-}
-
-func Pwd() StdoutString {
-	pwd, _ := os.Getwd()
-	return pwd
 }
 
 func Export(s ...string) {
