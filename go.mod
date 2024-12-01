@@ -1,3 +1,3 @@
-module github.com/binzume/gotobsh
+module github.com/binzume/gotosh
 
 go 1.22

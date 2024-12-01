@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 )
 
 func printSlice(msg string, s []int) {
@@ -32,6 +33,7 @@ func main() {
 	for i := 0; i < len(ss); i++ {
 		fmt.Println(i, ss[i])
 	}
+	fmt.Println(strings.Join(ss, ":"))
 
 	s := "abcdefghijk"
 	fmt.Println(s[1+2 : 5+3])

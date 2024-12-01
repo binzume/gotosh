@@ -98,6 +98,7 @@ function FizzBuzz() {
 - [strings.TrimPrefix](https://pkg.go.dev/strings#TrimPrefix)
 - [strings.TrimSuffix](https://pkg.go.dev/strings#TrimSuffix)
 - [strings.Split](https://pkg.go.dev/strings#Split)
+- [strings.Join](https://pkg.go.dev/strings#Join)
 - [strings.Contains](https://pkg.go.dev/strings#Contains)
 - [strings.IndexAny](https://pkg.go.dev/strings#IndexAny)
 - [os.Exit](https://pkg.go.dev/os#Exit)
