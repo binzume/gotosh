@@ -54,7 +54,7 @@ func (f *shExpression) AsValue() string {
 		// TODO: stdout...
 		cmd = "`" + cmd + " >&2; echo $?`"
 	} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
-		cmd = "`" + cmd + " >&2 && echo \"$_tmp\"`"
+		cmd = "`" + cmd + " >&2 && echo \"$_tmp0\"`"
 	} else if len(f.retTypes) > 0 && f.retTypes[0] == "_INT_EXP" {
 		cmd = "$(( " + cmd + " ))"
 	} else if f.StdoutValue() && len(f.retTypes) > 0 && strings.HasPrefix(f.retTypes[0], "[]") {
@@ -63,6 +63,17 @@ func (f *shExpression) AsValue() string {
 		cmd = "\"`" + cmd + "`\""
 	}
 	return strings.TrimSpace(cmd)
+}
+
+func (f *shExpression) VarName(i int) string {
+	if len(f.retTypes) > i {
+		if f.retTypes[i] == "StatusCode" {
+			return "?"
+		} else if f.retTypes[i] == "TempVarString" {
+			return "_tmp" + fmt.Sprint(i)
+		}
+	}
+	return ""
 }
 
 func (f *shExpression) AsExec() string {
@@ -206,7 +217,13 @@ func (s *state) readFuncCall(name string) *shExpression {
 
 	var args []string
 	for s.lastToken != scanner.EOF && s.lastToken != ')' {
-		args = append(args, s.readExpression("").AsValue())
+		e := s.readExpression("")
+		args = append(args, e.AsValue())
+		for i := range e.retTypes {
+			if i != 0 && e.VarName(i) != "" {
+				args = append(args, `"`+varValue(e.VarName(i))+`"`)
+			}
+		}
 	}
 
 	cmd := name + " " + strings.Join(args, " ")
@@ -255,7 +272,7 @@ func (s *state) readExpression(typeHint string) *shExpression {
 		} else if tok == ')' {
 			nest--
 		}
-		if mode == scanner.String && tok == '+' {
+		if mode == scanner.String && tok == '+' || tok == ':' {
 			continue
 		}
 		t := s.TokenText()
@@ -294,7 +311,6 @@ func (s *state) readExpression(typeHint string) *shExpression {
 			}
 		}
 		if tok == scanner.Ident && (s.Peek() == '(' || s.Peek() == '.') {
-			// TODO func call
 			mode = scanner.String
 			s.Scan()
 			funcRet = s.readFuncCall(t)
@@ -329,49 +345,78 @@ func (s *state) readExpression(typeHint string) *shExpression {
 	return &shExpression{cmd: exp, retTypes: retTypes}
 }
 
-func (s *state) procVar(name string, readonly bool) {
-	if name == "" {
+func (s *state) procAssign(names []string, local bool, readonly bool) {
+	if len(names) == 0 {
 		s.Scan()
-		name = s.TokenText()
+		name := s.TokenText()
 		s.vars[name] = s.readType(false)
-	}
-	if s.funcName != "" {
-		s.Write("local ")
-		if readonly {
-			s.Write("-r ")
-		}
+		names = append(names, name)
 	}
 	e := s.readExpression("")
 	v := e.AsValue()
-	if s.vars[name] == "" {
-		if len(e.retTypes) > 0 && e.retTypes[0] != "" {
-			s.vars[name] = e.retTypes[0]
-		} else if strings.HasPrefix(v, `"`) {
-			s.vars[name] = "string"
-		} else {
-			s.vars[name] = "" // TODO
+	stdoutIndex := -1
+	for i, name := range names {
+		if e.retVar != name && e.VarName(i) == "" {
+			stdoutIndex = i
+		}
+		if s.vars[name] == "" {
+			if len(e.retTypes) > i && e.retTypes[i] != "" {
+				s.vars[name] = e.retTypes[i]
+			} else {
+				s.vars[name] = "" // TODO
+			}
 		}
 	}
-	if v == "" && strings.HasPrefix(s.vars[name], "[]") {
+	if v == "" && strings.HasPrefix(s.vars[names[0]], "[]") {
 		v = "()"
 	}
-	if v != "" {
-		s.Writeln(name + "=" + v)
-	} else if s.funcName != "" {
-		s.Writeln(name)
+	if stdoutIndex < 0 {
+		s.Writeln(e.AsExec())
+	} else {
+		if local {
+			s.Write("local ")
+			if readonly {
+				s.Write("-r ")
+			}
+		}
+		if v != "" {
+			s.Writeln(names[stdoutIndex] + "=" + v)
+		} else if local {
+			s.Writeln(names[stdoutIndex])
+		}
+	}
+	for i, name := range names {
+		if i != stdoutIndex {
+			if local {
+				s.Write("local ")
+				if readonly {
+					s.Write("-r ")
+				}
+			}
+			vn := e.VarName(i)
+			if vn != "" && name != e.retVar {
+				s.Writeln(name + "=\"$" + vn + "\"")
+			} else {
+				s.Writeln(name)
+			}
+		}
+
 	}
 }
 
 func (s *state) procReturn() {
 	var status *shExpression
-	for _, t := range s.funcs[s.funcName].retTypes {
+	for i, t := range s.funcs[s.funcName].retTypes {
 		e := s.readExpression("")
 		if t == "StatusCode" {
 			status = e
 		} else if t == "TempVarString" {
-			s.Write("_tmp=" + e.AsValue() + ";") // TODO _ret=?
+			s.Write("_tmp" + fmt.Sprint(i) + "=" + e.AsValue() + ";")
 		} else {
-			s.Write("echo " + e.AsValue() + ";") // TODO _ret=?
+			s.Write("echo " + e.AsValue() + ";")
+		}
+		if s.lastToken != ',' {
+			break
 		}
 	}
 	if status != nil {
@@ -420,11 +465,11 @@ func (s *state) procFunc() {
 			s.Writeln("local " + arg + `="$1"; shift`)
 		}
 	}
-	s.Scan()
+	s.Scan() // '(' or '{' or Ident
 	var retTypes []string
-	retType := s.readType(s.lastToken != '(')
-	if retType != "" {
-		retTypes = append(retTypes, retType)
+	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
+		retTypes = append(retTypes, s.readType(s.lastToken == scanner.Ident))
+		s.Scan() // , or ')' or '{'
 	}
 	for ; s.lastToken != '{' && s.lastToken != scanner.EOF; s.Scan() {
 	}
@@ -436,8 +481,7 @@ func (s *state) procFor() {
 
 	n := 0
 	for s.lastToken != scanner.EOF && n < 3 {
-		// TODO
-		f[n] = strings.ReplaceAll(s.readExpression("").AsExec(), ":=", "=")
+		f[n] = s.readExpression("").AsExec()
 		n++
 		if s.lastToken == '{' {
 			break
@@ -491,29 +535,18 @@ func (s *state) procElse() {
 }
 
 func (s *state) procSentense(t string) {
-	second := ""
 	tok := s.Scan()
+	names := []string{t}
 	for tok == ',' {
 		s.Scan()
-		second = s.TokenText()
+		names = append(names, s.TokenText())
 		tok = s.Scan()
 	}
 	if tok == ':' {
-		s.Scan()
-		s.procVar(t, false)
-		if second != "" {
-			s.Writeln(second + "=$?")
-		}
+		s.Scan() // =
+		s.procAssign(names, s.funcName != "", false)
 	} else if tok == '=' {
-		v := s.readExpression("")
-		if t == v.retVar {
-			s.Writeln(v.AsExec())
-		} else {
-			s.Writeln(t + "=" + v.AsValue())
-		}
-		if second != "" {
-			s.Writeln(second + "=$?")
-		}
+		s.procAssign(names, false, false)
 	} else if tok == '(' || s.imports[t] != "" && tok == '.' {
 		s.Writeln(s.readFuncCall(t).AsExec())
 	} else {
@@ -539,18 +572,12 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 	s.imports = map[string]string{}
 	s.vars = map[string]string{}
 	s.funcs = map[string]shFunc{
-		"bash.Echo":    {shName: "echo"},
-		"bash.EchoN":   {shName: "echo -n"},
-		"bash.Printf":  {shName: "printf"},
-		"bash.Sprintf": {shName: "printf", retTypes: []string{"StdoutString"}},
-		"bash.Sleep":   {shName: "sleep"},
-		"bash.Exit":    {shName: "exit"},
-		"bash.Export":  {shName: "export"},
-		"bash.Pwd":     {shName: "pwd", retTypes: []string{"StdoutString"}},
-		"bash.Cd":      {shName: "cd"},
+		"bash.Sleep":  {shName: "sleep"},
+		"bash.Exit":   {shName: "exit"},
+		"bash.Export": {shName: "export"},
 		"bash.Exec": {shName: "", retTypes: []string{"StdoutString", "StatusCode"},
 			convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
-		"bash.Read": {shName: `read _tmp`, retTypes: []string{"TempVarString", "StatusCode"}},
+		"bash.Read": {shName: `read _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
 		"bash.SubStr": {shName: "", retTypes: []string{"_"},
 			convFunc: func(arg []string) string {
 				return "\"${" + varName(arg[0]) + ":" + arg[1] + ":" + arg[2] + "}\""
@@ -585,7 +612,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			return "\"${" + varName(arg[0]) + "%" + arg[1] + "}\""
 		}},
 		"strings.Split": {shName: "", retTypes: []string{"[]string"}, convFunc: func(arg []string) string {
-			return "(`IFS=" + arg[1] + " _tmp=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp[@]}\" `)"
+			return "(`IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\" `)"
 		}},
 		"strings.Contains": {shName: "", retTypes: []string{"bool"}, convFunc: func(arg []string) string {
 			return "case " + arg[0] + " in *" + arg[1] + "* ) echo 1;; *) echo 0;; esac"
@@ -595,8 +622,8 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		}},
 		// os
 		"os.Exit":     {shName: "exit"},
-		"os.Getwd":    {shName: "pwd", retTypes: []string{"StdoutString"}},
-		"os.Chdir":    {shName: "cd", retTypes: []string{"StatusCode"}},
+		"os.Getwd":    {shName: "pwd", retTypes: []string{"StdoutString", "StatusCode"}},
+		"os.Chdir":    {shName: "cd", retTypes: []string{"StatusCode", "StatusCode"}},
 		"os.Getpid":   {shName: "$$"},
 		"os.Getppid":  {shName: "$PPID"},
 		"os.Getuid":   {shName: "$UID"},
@@ -650,6 +677,8 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 				s.Scan()
 			case "import":
 				s.parseImport()
+			case "type":
+				s.Writeln("## type ", s.readExpression("").AsExec()) // TODO
 			case "for":
 				s.procFor()
 			case "if":
@@ -665,9 +694,9 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "func":
 				s.procFunc()
 			case "var":
-				s.procVar("", false)
+				s.procAssign(nil, s.funcName != "", false)
 			case "const":
-				s.procVar("", true)
+				s.procAssign(nil, s.funcName != "", true)
 			case "go":
 				s.Writeln(s.readExpression("").AsExec() + " &")
 			default:
