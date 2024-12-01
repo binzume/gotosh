@@ -25,6 +25,9 @@ func varValue(name string) string {
 }
 
 func escapeShellString(s string) string {
+	if strings.Contains(s, "\\") {
+		return "$'" + strings.ReplaceAll(s[1:len(s)-1], "'", "\\'") + "'"
+	}
 	return strings.ReplaceAll(s, "$", "\\$")
 }
 
@@ -184,7 +187,14 @@ func (s *state) readType(scaned bool) string {
 	return strings.TrimPrefix(t, "bash.")
 }
 
-func (s *state) readFuncCall(pkgref, name string) *shExpression {
+func (s *state) readFuncCall(name string) *shExpression {
+	pkgref := ""
+	if s.lastToken == '.' {
+		pkgref = name
+		s.Scan()
+		name = s.TokenText()
+		s.Scan() // (
+	}
 	if pkgref != "" {
 		pkg := s.imports[pkgref]
 		name = path.Base(pkg) + "." + name
@@ -286,15 +296,8 @@ func (s *state) readExpression(typeHint string) *shExpression {
 		if tok == scanner.Ident && (s.Peek() == '(' || s.Peek() == '.') {
 			// TODO func call
 			mode = scanner.String
-			tok2 := s.Scan()
-			pkgref := ""
-			if tok2 == '.' {
-				s.Scan()
-				pkgref = t
-				t = s.TokenText()
-				s.Scan()
-			}
-			funcRet = s.readFuncCall(pkgref, t)
+			s.Scan()
+			funcRet = s.readFuncCall(t)
 			exp += funcRet.AsValue()
 		} else if tok == scanner.Ident && mode == scanner.String {
 			exp += "\"" + varValue(t) + "\""
@@ -310,7 +313,7 @@ func (s *state) readExpression(typeHint string) *shExpression {
 		}
 	}
 	if tokens == 1 && mode == scanner.Ident {
-		exp = varValue(exp)
+		exp = "\"" + varValue(exp) + "\""
 	}
 	if funcRet != nil && exp == funcRet.AsValue() {
 		return funcRet
@@ -320,6 +323,8 @@ func (s *state) readExpression(typeHint string) *shExpression {
 		retTypes = append(retTypes, "_INT_EXP")
 	} else if typeHint != "" {
 		retTypes = append(retTypes, typeHint)
+	} else if mode == scanner.String {
+		retTypes = append(retTypes, "string")
 	}
 	return &shExpression{cmd: exp, retTypes: retTypes}
 }
@@ -510,14 +515,7 @@ func (s *state) procSentense(t string) {
 			s.Writeln(second + "=$?")
 		}
 	} else if tok == '(' || s.imports[t] != "" && tok == '.' {
-		if tok == '.' {
-			s.Scan()
-			name := s.TokenText()
-			s.Scan() // (
-			s.Writeln(s.readFuncCall(t, name).AsExec())
-		} else {
-			s.Writeln(s.readFuncCall("", t).AsExec())
-		}
+		s.Writeln(s.readFuncCall(t).AsExec())
 	} else {
 		fmt.Printf("# %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
 	}
@@ -557,11 +555,48 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			convFunc: func(arg []string) string {
 				return "\"${" + varName(arg[0]) + ":" + arg[1] + ":" + arg[2] + "}\""
 			}},
+		"bash.UnixTimeMs": {shName: "date +%s000", retTypes: []string{"int"}},
 		// fmt
-		"fmt.Println": {shName: "echo"},
 		"fmt.Print":   {shName: "echo -n"},
+		"fmt.Println": {shName: "echo"},
+		"fmt.Printf":  {shName: "printf"},
+		"fmt.Sprint":  {shName: "echo -n", retTypes: []string{"StdoutString"}},
+		"fmt.Sprintln": {shName: "echo", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
+			return "`echo " + strings.Join(arg, " ") + "`$'\\n'"
+		}},
+		"fmt.Sprintf": {shName: "printf", retTypes: []string{"StdoutString"}},
+		// strings
+		"strings.ReplaceAll": {shName: "", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
+			return "\"${" + varName(arg[0]) + "//" + arg[1] + "/" + arg[2] + "}\""
+		}},
+		"strings.ToUpper": {shName: "", retTypes: []string{"string"}, convFunc: func(arg []string) string {
+			return "echo " + arg[0] + "|tr '[:lower:]' '[:upper:]'"
+		}},
+		"strings.ToLower": {shName: "", retTypes: []string{"string"}, convFunc: func(arg []string) string {
+			return "echo " + arg[0] + "|tr '[:upper:]' '[:lower:]'"
+		}},
+		"strings.TrimSpace": {shName: "", retTypes: []string{"string"}, convFunc: func(arg []string) string {
+			return "echo " + arg[0] + "| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'"
+		}},
+		"strings.TrimPrefix": {shName: "", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
+			return "\"${" + varName(arg[0]) + "#" + arg[1] + "}\""
+		}},
+		"strings.TrimSuffix": {shName: "", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
+			return "\"${" + varName(arg[0]) + "%" + arg[1] + "}\""
+		}},
+		"strings.Split": {shName: "", retTypes: []string{"[]string"}, convFunc: func(arg []string) string {
+			return "(`IFS=" + arg[1] + " _tmp=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp[@]}\" `)"
+		}},
+		"strings.Contains": {shName: "", retTypes: []string{"bool"}, convFunc: func(arg []string) string {
+			return "case " + arg[0] + " in *" + arg[1] + "* ) echo 1;; *) echo 0;; esac"
+		}},
+		"strings.IndexAny": {shName: "", retTypes: []string{"int"}, convFunc: func(arg []string) string {
+			return "expr '(' index " + arg[0] + " " + arg[1] + " ')' - 1"
+		}},
 		// os
 		"os.Exit":     {shName: "exit"},
+		"os.Getwd":    {shName: "pwd", retTypes: []string{"StdoutString"}},
+		"os.Chdir":    {shName: "cd", retTypes: []string{"StatusCode"}},
 		"os.Getpid":   {shName: "$$"},
 		"os.Getppid":  {shName: "$PPID"},
 		"os.Getuid":   {shName: "$UID"},
@@ -576,18 +611,19 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
 		// TODO: cast
-		"int":             {shName: "", retTypes: []string{"_"}},
-		"string":          {shName: "", retTypes: []string{"_"}},
-		"strconv.Atoi":    {shName: "", retTypes: []string{"_"}},
-		"strconv.Itoa":    {shName: "", retTypes: []string{"_"}},
-		"bash.StatusCode": {shName: "", retTypes: []string{"_"}},
+		"int":             {shName: "", retTypes: []string{"_int"}},
+		"byte":            {shName: "", retTypes: []string{"_int"}},
+		"string":          {shName: "", retTypes: []string{"_string"}},
+		"strconv.Atoi":    {shName: "", retTypes: []string{"_int"}},
+		"strconv.Itoa":    {shName: "", retTypes: []string{"_string"}},
+		"bash.StatusCode": {shName: "", retTypes: []string{"_int"}},
 		// slice
-		"len": {shName: "", retTypes: []string{"_"},
+		"len": {shName: "", retTypes: []string{"_int"},
 			convFunc: func(arg []string) string {
-				if s.vars[varName(arg[0])] == "string" {
-					return "${#" + varName(arg[0]) + "}"
+				if strings.HasPrefix(s.vars[varName(arg[0])], "[]") {
+					return "${#" + varName(arg[0]) + "[@]}"
 				}
-				return "${#" + varName(arg[0]) + "[@]}"
+				return "${#" + varName(arg[0]) + "}"
 			}},
 		"append": {shName: "", retTypes: []string{"_ARG1"},
 			convFunc: func(arg []string) string {
