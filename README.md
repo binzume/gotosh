@@ -1,25 +1,123 @@
 # Go to sh
 
-PoC for generating bash script from small subset of Go.
+PoC for generating shell script from subset of Go.
 
-Goのコードをシェルスクリプトに変換するやつです。限られたことしかできません。実用的なものになる予定はないです。
+Goのコードをシェルスクリプトに変換するやつです。限られたことしかできません。
 
 Supported:
 
-- types: `int`, `string`, `[]int`, `[]string` 
-- go keyword, func, if, else, for, break, continue, const, var, append, len, go
-- commands: pwd, cd, export, echo, printf, read, exit, sleep.
+- Types: `int`, `string`, `[]int`, `[]string` 
+- Go keyword, func, if, else, for, break, continue, const, var, append, len, go
 
 TODO:
 
 - jq, curl support
 - Convert bash/compiler.go to compiler.sh
 
+# Usage
+
+See [examples](examples) folder
+
+```bash
+go run . examples/fizz_buzz.go > fizz_buzz.sh
+chmod a+x fizz_buzz.sh
+./fizz_buzz.sh
+```
+
+### Input(fizz_buzz.go)
+
+```go
+package main
+
+import "fmt"
+
+const fizz = "Fizz"
+const buzz = "Buzz"
+
+func FizzBuzz(n int) {
+	for i := 1; i <= n; i++ {
+		if i%15 == 0 {
+			fmt.Println(fizz + buzz)
+		} else if i%3 == 0 {
+			fmt.Println(fizz)
+		} else if i%5 == 0 {
+			fmt.Println(buzz)
+		} else {
+			fmt.Println(i)
+		}
+	}
+}
+
+func main() {
+	FizzBuzz(100)
+}
+```
+
+### Output(fizz_buzz.sh)
+
+```bash
+#!/bin/sh
+
+fizz="Fizz"
+buzz="Buzz"
+function FizzBuzz() {
+  local n="$1"; shift
+  i=1
+  while [ $(( i<=n )) -ne 0 ]; do
+    if [ $(( i%15==0 )) -ne 0 ]; then
+      echo "$fizz""$buzz"
+    elif [ $(( i%3==0 )) -ne 0 ]; then
+      echo "$fizz"
+    elif [ $(( i%5==0 )) -ne 0 ]; then
+      echo "$buzz"
+    else
+      echo "$i"
+    fi
+
+  let "i++"; done
+}
+
+# function main()
+  FizzBuzz 100
+# end of main
+```
+
+## Supported functions
+
+- [bash.*](bash/builtin.go)
+- [fmt.Print](https://pkg.go.dev/fmt#Print)
+- [fmt.Println](https://pkg.go.dev/fmt#Println)
+- [fmt.Printf](https://pkg.go.dev/fmt#Printf)
+- [fmt.Sprint](https://pkg.go.dev/fmt#Sprint)
+- [fmt.Sprintln](https://pkg.go.dev/fmt#Sprintln)
+- [fmt.Sprintf](https://pkg.go.dev/fmt#Sprintf)
+- [strings.ReplaceAll](https://pkg.go.dev/strings#ReplaceAll)
+- [strings.ToUpper](https://pkg.go.dev/strings#ToUpper)
+- [strings.ToLower](https://pkg.go.dev/strings#ToLower)
+- [strings.TrimSpace](https://pkg.go.dev/strings#TrimSpace)
+- [strings.TrimPrefix](https://pkg.go.dev/strings#TrimPrefix)
+- [strings.TrimSuffix](https://pkg.go.dev/strings#TrimSuffix)
+- [strings.Split](https://pkg.go.dev/strings#Split)
+- [strings.Contains](https://pkg.go.dev/strings#Contains)
+- [strings.IndexAny](https://pkg.go.dev/strings#IndexAny)
+- [os.Exit](https://pkg.go.dev/os#Exit)
+- [os.Getwd](https://pkg.go.dev/os#Getwd)
+- [os.Chdir](https://pkg.go.dev/os#Chdir)
+- [os.Getpid](https://pkg.go.dev/os#Getpid)
+- [os.Getppid](https://pkg.go.dev/os#Getppid)
+- [os.Getuid](https://pkg.go.dev/os#Getuid)
+- [os.Geteuid](https://pkg.go.dev/os#Geteuid)
+- [os.Getgid](https://pkg.go.dev/os#Getgid)
+- [os.Getegid](https://pkg.go.dev/os#Getegid)
+- [os.Hostname](https://pkg.go.dev/os#Hostname)
+- [os.Getenv](https://pkg.go.dev/os#Getenv)
+- [os.Setenv](https://pkg.go.dev/os#Setenv)
+
 # 制限
 
 ## サポートしていないものがたくさんあります
 
-- for range, make, new, ch, switch, select...
+- range, make, new, chan, switch, select, struct, map...
 
 ## 型
 
@@ -32,55 +130,23 @@ TODO:
 
 ## 関数の戻り値
 
-場合によって値の返し方が異なります。扱いを明示したい場合は以下の型(type alias)が使えます。
+関数の戻り値は標準出力として返します。基本的に値を返す関数の内部で標準出力に何かを出力することはできません。
+標準出力以外で値を返すことを明示したい場合は以下の型(type alias)が使えます。(名前しか見てないので同名のtypeを定義しても動作します)
 
-- `bash.StdoutString` (= string) は標準出力として関数の結果を返します (これがデフォルト動作。この場合は関数内でecho等はできません)
+- `bash.StdoutString` (= string) は標準出力として関数の結果を返します (デフォルト動作)
+- `bash.TempVarString` (= string) は _tmpN 変数を使って値を返します。複数の値を返す必要がある場合に使います
 - `bash.StatusCode` (= byte) は関数の終了コードとして返します
-- `bash.TempVarString` (= string) は_tmp変数に値をセットします
-- 多値のサポートは2つ目の戻り値が `bash.StatusCode` 型のときのみ動きます
+
+多値のサポートは限定的で特定の場合しか利用できません。以下の組み合わせは動作するはず
+
+- (*, StatusCode)
+- (TempVarString, TempVarString, ..., StatusCode)
 
 ## goroutine
 
 サブプロセスとして実行されます。いまのところ、起動したgoroutineとの通信手段は用意していません。
 また、無名関数も使えないので通常の関数を使ってください。
 
-# Usage
-
-```bash
-go run . examples/hello_world.go > hello.sh
-chmod a+x hello.sh
-./hello.sh
-```
-
-## Examples
-
-- examples/hello_workd.go
-- examples/read_stdin.go
-- examples/fizz_buzz.go
-
-Input:
-
-```go
-package main
-
-import "fmt"
-
-// Hello, world
-func main() {
-	fmt.Println("Hello, world!")
-}
-```
-
-Output:
-
-```bash
-#!/bin/bash
-
-# Hello, world
-# function main()
-  echo "Hello, world!"
-# end of main
-```
 
 # License
 
