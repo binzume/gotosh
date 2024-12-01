@@ -3,6 +3,7 @@ package bash
 import (
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -19,7 +20,7 @@ func Exec(cmd string) (StdoutString, StatusCode) {
 	if err != nil {
 		return string(out), 1
 	}
-	return string(out), 0
+	return strings.TrimSuffix(string(out), "\n"), 0
 }
 
 func Read() (StdoutString, StatusCode) {
