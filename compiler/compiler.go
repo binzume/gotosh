@@ -53,6 +53,8 @@ func (f *shExpression) AsValue() string {
 		exp = "$(( " + exp + " ))"
 	} else if f.StdoutValue() && len(f.retTypes) > 0 && strings.HasPrefix(f.retTypes[0], "[]") {
 		exp = "(`" + exp + "`)"
+	} else if f.StdoutValue() && len(f.retTypes) > 0 && f.retTypes[0] == "int" {
+		exp = "`" + exp + "`"
 	} else if f.StdoutValue() {
 		exp = "\"`" + exp + "`\""
 	}
@@ -102,6 +104,13 @@ func (s *state) Scan() rune {
 	return s.lastToken
 }
 
+func (s *state) ScanWC() rune {
+	s.Mode &^= scanner.SkipComments
+	s.lastToken = s.Scanner.Scan()
+	s.Mode |= scanner.SkipComments
+	return s.lastToken
+}
+
 func (s *state) FlushLine() {
 	if s.bufLine != "" {
 		t := s.bufLine
@@ -112,26 +121,24 @@ func (s *state) FlushLine() {
 }
 
 func (s *state) Write(str ...any) {
-	if !s.middleofline {
-		s.Indent()
-	}
+	s.Indent()
 	s.FlushLine()
 	fmt.Fprint(s.w, str...)
 	s.middleofline = true
 }
 
 func (s *state) Writeln(str ...any) {
-	if !s.middleofline {
-		s.Indent()
-	}
+	s.Indent()
 	s.FlushLine()
 	fmt.Fprintln(s.w, str...)
 	s.middleofline = false
 }
 
 func (s *state) Indent() {
-	s.middleofline = true
-	s.Write(strings.Repeat("  ", len(s.cl)))
+	if !s.middleofline {
+		s.middleofline = true
+		fmt.Fprint(s.w, strings.Repeat("  ", len(s.cl)))
+	}
 }
 
 func (s *state) EndBlock() {
@@ -142,6 +149,13 @@ func (s *state) EndBlock() {
 	if len(s.cl) == 0 {
 		s.funcName = ""
 	}
+}
+
+func (s *state) maybeArraySuffix(t string) string {
+	if strings.HasPrefix(s.vars[t], "[]") {
+		t += "[@]"
+	}
+	return t
 }
 
 func (s *state) parseImportPkg() {
@@ -199,15 +213,15 @@ func (s *state) readType(scaned bool) string {
 }
 
 func (s *state) readFuncCall(name string) *shExpression {
-	pkgref := ""
+	ns := ""
 	if s.lastToken == '.' {
-		pkgref = name
+		ns = name
 		s.Scan()
 		name = s.TokenText()
 		s.Scan() // (
 	}
-	if pkgref != "" {
-		pkg := s.imports[pkgref]
+	if ns != "" {
+		pkg := s.imports[ns]
 		name = path.Base(pkg) + "." + name
 	}
 	f, ok := s.funcs[name]
@@ -226,9 +240,16 @@ func (s *state) readFuncCall(name string) *shExpression {
 		}
 	}
 
-	exp := name + " " + strings.Join(args, " ")
+	exp := name
 	if f.convFunc != nil {
 		exp = f.convFunc(args)
+	} else if strings.Contains(exp, "{0}") || strings.Contains(exp, "{1}") {
+		for i, a := range args {
+			exp = strings.ReplaceAll(exp, fmt.Sprintf("{%d}", i), a)
+			exp = strings.ReplaceAll(exp, fmt.Sprintf("{*%d}", i), varName(a))
+		}
+	} else {
+		exp += " " + strings.Join(args, " ")
 	}
 	retVar := ""
 	if len(f.retTypes) > 0 && f.retTypes[0] == "_ARG1" && len(args) > 0 {
@@ -283,6 +304,8 @@ func (s *state) readExpression(typeHint string) *shExpression {
 			if s.vars[t] == "string" {
 				isString = true
 			}
+			ot := t
+			t = s.maybeArraySuffix(t)
 			if t == "true" {
 				tok = scanner.Int
 				t = "1"
@@ -296,22 +319,17 @@ func (s *state) readExpression(typeHint string) *shExpression {
 					idx = append(idx, s.readExpression("int"))
 				}
 				if len(idx) == 1 {
-					t += "[" + idx[0].AsValue() + "]"
+					t = ot + "[" + idx[0].AsValue() + "]"
 				} else if len(idx) >= 2 {
-					if strings.HasPrefix(s.vars[t], "[]") {
-						t += "[@]"
-					}
 					t += ":" + idx[0].AsValue() + ":$(( " + idx[1].AsValue() + " - " + idx[0].AsValue() + " ))"
 				}
-			} else if strings.HasPrefix(s.vars[t], "[]") {
-				t += "[@]"
 			}
 		}
 		if tok == scanner.Ident && (s.Peek() == '(' || s.Peek() == '.') {
 			s.Scan()
 			funcRet = s.readFuncCall(t)
 			exp += funcRet.AsValue()
-			tokens++
+			singleVar = false
 			if len(funcRet.retTypes) > 0 && funcRet.retTypes[0] == "string" {
 				isString = true
 			}
@@ -384,6 +402,9 @@ func (s *state) procAssign(names []string, local bool, readonly bool) {
 		}
 		vn := RetVarName(e.retTypes, i)
 		if i == stdoutIndex && v != "" {
+			if local && statusIndex >= 0 {
+				s.Writeln(names[i]) // to avoid local modify status code
+			}
 			s.Writeln(names[i] + "=" + v)
 		} else if vn != "" && names[i] != e.retVar {
 			s.Writeln(names[i] + "=\"$" + vn + "\"")
@@ -435,14 +456,9 @@ func (s *state) procFunc() {
 	for tok := s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
 		if name == "" && tok == scanner.Ident {
 			name = s.TokenText()
-			if name == "main" {
-				s.Writeln("# function " + name + "()")
-				s.cl = append(s.cl, "# end of "+name)
-			} else {
-				s.funcName = name
-				s.Writeln("function " + name + "() {")
-				s.cl = append(s.cl, "}")
-			}
+			s.funcName = name
+			s.Writeln("function " + name + "() {")
+			s.cl = append(s.cl, "}")
 			continue
 		}
 		if tok == '(' || tok == ',' {
@@ -562,7 +578,6 @@ func CompileFile(srcPath string) error {
 func (s *state) Compile(r io.Reader, srcName string) error {
 	s.Init(r)
 	s.Filename = srcName
-	s.Mode ^= scanner.SkipComments
 	s.w = os.Stdout
 	s.imports = map[string]string{}
 	s.vars = map[string]string{}
@@ -572,11 +587,8 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"bash.Export": {exp: "export"},
 		"bash.Exec": {exp: "", retTypes: []string{"StdoutString", "StatusCode"},
 			convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
-		"bash.Read": {exp: `read _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
-		"bash.SubStr": {exp: "", retTypes: []string{"_"},
-			convFunc: func(arg []string) string {
-				return "\"${" + varName(arg[0]) + ":" + arg[1] + ":" + arg[2] + "}\""
-			}},
+		"bash.Read":       {exp: `read _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
+		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"_"}},
 		"bash.UnixTimeMs": {exp: "date +%s000", retTypes: []string{"int"}},
 		// fmt
 		"fmt.Print":   {exp: "echo -n"},
@@ -588,33 +600,18 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		}},
 		"fmt.Sprintf": {exp: "printf", retTypes: []string{"StdoutString"}},
 		// strings
-		"strings.ReplaceAll": {exp: "", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
-			return "\"${" + varName(arg[0]) + "//" + arg[1] + "/" + arg[2] + "}\""
-		}},
-		"strings.ToUpper": {exp: "", retTypes: []string{"string"}, convFunc: func(arg []string) string {
-			return "echo " + arg[0] + "|tr '[:lower:]' '[:upper:]'"
-		}},
-		"strings.ToLower": {exp: "", retTypes: []string{"string"}, convFunc: func(arg []string) string {
-			return "echo " + arg[0] + "|tr '[:upper:]' '[:lower:]'"
-		}},
-		"strings.TrimSpace": {exp: "", retTypes: []string{"string"}, convFunc: func(arg []string) string {
-			return "echo " + arg[0] + "| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'"
-		}},
-		"strings.TrimPrefix": {exp: "", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
-			return "\"${" + varName(arg[0]) + "#" + arg[1] + "}\""
-		}},
-		"strings.TrimSuffix": {exp: "", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
-			return "\"${" + varName(arg[0]) + "%" + arg[1] + "}\""
-		}},
+		"strings.ReplaceAll": {exp: "\"${{*0}//{1}/{2}}\"", retTypes: []string{"_string"}},
+		"strings.ToUpper":    {exp: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []string{"string"}},
+		"strings.ToLower":    {exp: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []string{"string"}},
+		"strings.TrimSpace":  {exp: "echo {0}| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []string{"string"}},
+		"strings.TrimPrefix": {exp: "\"${{*0}#{1}}\"", retTypes: []string{"_string"}},
+		"strings.TrimSuffix": {exp: "\"${{*0}%{1}}\"", retTypes: []string{"_string"}},
 		"strings.Split": {exp: "", retTypes: []string{"[]string"}, convFunc: func(arg []string) string {
 			return "(`IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\" `)"
 		}},
-		"strings.Contains": {exp: "", retTypes: []string{"bool"}, convFunc: func(arg []string) string {
-			return "case " + arg[0] + " in *" + arg[1] + "* ) echo 1;; *) echo 0;; esac"
-		}},
-		"strings.IndexAny": {exp: "", retTypes: []string{"int"}, convFunc: func(arg []string) string {
-			return "expr '(' index " + arg[0] + " " + arg[1] + " ')' - 1"
-		}},
+		"strings.Join":     {exp: "(IFS={1}; echo \"${{*0}[*]}\")", retTypes: []string{"string"}},
+		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []string{"bool"}},
+		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}},
 		// os
 		"os.Exit":     {exp: "exit"},
 		"os.Getwd":    {exp: "pwd", retTypes: []string{"StdoutString", "StatusCode"}},
@@ -641,12 +638,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		"bash.StatusCode": {exp: "", retTypes: []string{"_int"}},
 		// slice
 		"len": {exp: "", retTypes: []string{"_int"},
-			convFunc: func(arg []string) string {
-				if strings.HasPrefix(s.vars[varName(arg[0])], "[]") {
-					return "${#" + varName(arg[0]) + "[@]}"
-				}
-				return "${#" + varName(arg[0]) + "}"
-			}},
+			convFunc: func(arg []string) string { return "${#" + s.maybeArraySuffix(varName(arg[0])) + "}" }},
 		"append": {exp: "", retTypes: []string{"_ARG1"},
 			convFunc: func(arg []string) string {
 				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
@@ -656,7 +648,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 	s.Writeln("#!/bin/sh")
 	s.Writeln("")
 
-	for tok := s.Scan(); tok != scanner.EOF; tok = s.Scan() {
+	for tok := s.ScanWC(); tok != scanner.EOF; tok = s.ScanWC() {
 		if tok == '}' && len(s.cl) > 0 {
 			s.EndBlock()
 		} else if tok == '{' {
@@ -702,5 +694,8 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		}
 	}
 	s.FlushLine()
+	if _, ok := s.funcs["main"]; ok {
+		s.Writeln("main")
+	}
 	return nil
 }
