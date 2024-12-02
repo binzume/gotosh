@@ -1,0 +1,28 @@
+name: Go
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Go
+      uses: actions/setup-go@v2
+      with:
+        go-version: 1.23
+    - name: Build
+      run: go build -v .
+    - name: Test
+      run: ./compare_output.sh hello_world
+    - name: Test fizz_buzz
+      run: ./compare_output.sh fizz_buzz
+    - name: Test string_sample
+      run: ./compare_output.sh string_sample
+    - name: Test slice_sample
+      run: ./compare_output.sh slice_sample
