@@ -105,11 +105,10 @@ func newState() *state {
 	s.imports = map[string]string{}
 	s.vars = map[string]string{}
 	s.funcs = map[string]shFunc{
-		"bash.Sleep":  {exp: "sleep"},
-		"bash.Exit":   {exp: "exit"},
-		"bash.Export": {exp: "export"},
-		"bash.Exec": {exp: "", retTypes: []string{"StdoutString", "StatusCode"},
-			convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
+		"bash.Sleep":      {exp: "sleep"},
+		"bash.Exit":       {exp: "exit"},
+		"bash.Export":     {exp: "export"},
+		"bash.Exec":       {exp: "", retTypes: []string{"StdoutString", "StatusCode"}},
 		"bash.Read":       {exp: `read _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
 		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"_"}},
 		"bash.UnixTimeMs": {exp: "date +%s000", retTypes: []string{"int"}},
@@ -276,7 +275,7 @@ func (s *state) readType(scaned bool) string {
 		t += s.readType(false)
 	} else if s.lastToken == '[' {
 		t += s.TokenText()
-		s.Scan() // ]
+		s.readExpression("int") // ignore array size
 		t += s.TokenText()
 		t += s.readType(false)
 	}
@@ -291,14 +290,6 @@ func (s *state) readFuncCall(name string) *shExpression {
 		name = s.TokenText()
 		s.Scan() // (
 	}
-	if ns != "" {
-		pkg := s.imports[ns]
-		name = path.Base(pkg) + "." + name
-	}
-	f, ok := s.funcs[name]
-	if ok {
-		name = f.exp
-	}
 
 	var args []string
 	for s.lastToken != scanner.EOF && s.lastToken != ')' {
@@ -311,7 +302,21 @@ func (s *state) readFuncCall(name string) *shExpression {
 		}
 	}
 
+	if ns != "" {
+		if s.vars[ns] != "" {
+			name = s.vars[ns] + "__" + name
+			args = append([]string{`"` + varValue(ns) + `"`}, args...)
+		} else {
+			pkg := s.imports[ns]
+			name = path.Base(pkg) + "." + name
+		}
+	}
+
 	exp := name
+	f, ok := s.funcs[name]
+	if ok {
+		exp = f.exp
+	}
 	if f.convFunc != nil {
 		exp = f.convFunc(args)
 	} else if strings.Contains(exp, "{0}") || strings.Contains(exp, "{1}") {
@@ -521,25 +526,30 @@ func (s *state) procReturn() {
 }
 
 func (s *state) procFunc() {
-	name := ""
 	var args []string
 	var argTypes []string
-	for tok := s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
-		if name == "" && tok == scanner.Ident {
-			name = s.TokenText()
-			s.funcName = name
-			s.Writeln("function " + name + "() {")
-			s.cl = append(s.cl, "}")
-			continue
-		}
+	tok := s.Scan()
+	prefix := ""
+	if tok == '(' {
+		s.Scan()
+		args = append(args, s.TokenText())
+		t := strings.ReplaceAll(s.readType(false), "*", "") // pointer is not supported
+		s.vars[args[len(argTypes)]] = t
+		argTypes = append(argTypes, t)
+		s.Scan()
+		prefix = t + "__"
+		s.Scan()
+	}
+	name := prefix + s.TokenText()
+	s.funcName = name
+	for tok = s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
 		if tok == '(' || tok == ',' {
 			tok = s.Scan()
-			if tok == scanner.Ident {
-				args = append(args, s.TokenText())
-			} else if tok == ')' {
+			if tok == ')' {
 				break
 			}
-		} else if (tok == scanner.Ident || tok == '[' || tok == '*') && len(args) > len(argTypes) {
+			args = append(args, s.TokenText())
+		} else {
 			t := s.readType(true)
 			for len(args) > len(argTypes) {
 				s.vars[args[len(argTypes)]] = t
@@ -547,6 +557,16 @@ func (s *state) procFunc() {
 			}
 		}
 	}
+	s.Scan() // '(' or '{' or Ident
+	var retTypes []string
+	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
+		retTypes = append(retTypes, s.readType(s.lastToken != '(' && s.lastToken != ','))
+		s.Scan() // , or ')' or '{'
+	}
+	for ; s.lastToken != '{' && s.lastToken != scanner.EOF; s.Scan() {
+	}
+
+	s.Writeln("function " + name + "() {")
 	for _, arg := range args {
 		if strings.HasPrefix(s.vars[arg], "[]") {
 			s.Writeln("local " + arg + `=("$@")`)
@@ -554,14 +574,7 @@ func (s *state) procFunc() {
 			s.Writeln("local " + arg + `="$1"; shift`)
 		}
 	}
-	s.Scan() // '(' or '{' or Ident
-	var retTypes []string
-	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
-		retTypes = append(retTypes, s.readType(s.lastToken == scanner.Ident))
-		s.Scan() // , or ')' or '{'
-	}
-	for ; s.lastToken != '{' && s.lastToken != scanner.EOF; s.Scan() {
-	}
+	s.cl = append(s.cl, "}")
 	s.funcs[name] = shFunc{exp: name, retTypes: retTypes}
 }
 
@@ -629,7 +642,7 @@ func (s *state) procSentense(t string) {
 		s.procAssign(names, s.funcName != "", false)
 	} else if tok == '=' {
 		s.procAssign(names, false, false)
-	} else if tok == '(' || s.imports[t] != "" && tok == '.' {
+	} else if tok == '(' || tok == '.' {
 		s.Writeln(s.readFuncCall(t).AsExec())
 	} else {
 		fmt.Printf("# Unknown token %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))

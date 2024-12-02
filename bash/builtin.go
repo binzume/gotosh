@@ -15,8 +15,8 @@ type TempVarString = string
 
 var IFS = " \t\n"
 
-func Exec(cmd string) (StdoutString, StatusCode) {
-	out, err := exec.Command("ls", "-la").Output()
+func Exec(name string, args ...string) (StdoutString, StatusCode) {
+	out, err := exec.Command(name, args...).Output()
 	if err != nil {
 		return string(out), 1
 	}

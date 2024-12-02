@@ -2,7 +2,10 @@
 
 PoC for generating shell script from subset of Go.
 
-Goのコードをシェルスクリプトに変換するやつです。限られたことしかできません。
+Goのコードをシェルスクリプトに変換するやつです。
+
+シェルスクリプトを型付きの言語で書きたくて実装しました。
+普通にGoのバイナリを実行するのが困難な環境のために作ったので、slice以外はBusyBoxのashで動作するようにしています。
 
 Supported:
 
@@ -118,18 +121,22 @@ function FizzBuzz() {
 
 ## サポートしていないものがたくさんあります
 
-- range, make, new, chan, switch, select, struct, map...
+- defer, range, make, new, chan, switch, select, struct, map...
 
 ## 型
 
 - 利用可能な型は、`int`, `string`, `[]int`, `[]string` のみです
 - 定数の場合のみ`float`を扱えます(例： `bash.Sleep(0.1)` は有効)
 
-## 関数の引数
+sliceの実装はbash専用です。zshの場合は `setopt KSH_ARRAYS` を追加する必要があると思います。
 
-- 関数の最後の引数以外ではスライスを受け取ることはできません
+## 関数
 
-## 関数の戻り値
+### 引数
+
+関数の最後の引数以外ではスライスを受け取ることはできません。
+
+### 戻り値
 
 関数の戻り値は標準出力として返します。基本的に値を返す関数の内部で標準出力に何かを出力することはできません。
 標準出力以外で値を返すことを明示したい場合は以下の型(type alias)が使えます。(名前しか見てないので同名のtypeを定義しても動作します)
@@ -138,16 +145,19 @@ function FizzBuzz() {
 - `bash.TempVarString` (= string) は _tmpN 変数を使って値を返します。複数の値を返す必要がある場合に使います
 - `bash.StatusCode` (= byte) は関数の終了コードとして返します
 
-多値のサポートは限定的で特定の場合しか利用できません。以下の組み合わせは動作するはず
+多値のサポートは戻り値の代入時に以下の組み合わせのみ動作します。
 
 - (*, StatusCode)
 - (TempVarString, TempVarString, ..., StatusCode)
+
+## レシーバ
+
+レシーバのある関数(メソッド)も使えますが、ポインタが無いのでメソッド内で自身の値を書き換えることはできません。
 
 ## goroutine
 
 サブプロセスとして実行されます。いまのところ、起動したgoroutineとの通信手段は用意していません。
 また、無名関数も使えないので通常の関数を使ってください。
-
 
 # License
 
