@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	err := compiler.CompileFile(os.Args[1])
+	err := compiler.CompileFiles(os.Args[1:])
 	if err != nil {
 		fmt.Println(err)
 	}

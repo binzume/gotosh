@@ -99,6 +99,77 @@ type state struct {
 	middleofline bool
 }
 
+func newState() *state {
+	var s state
+	s.w = os.Stdout
+	s.imports = map[string]string{}
+	s.vars = map[string]string{}
+	s.funcs = map[string]shFunc{
+		"bash.Sleep":  {exp: "sleep"},
+		"bash.Exit":   {exp: "exit"},
+		"bash.Export": {exp: "export"},
+		"bash.Exec": {exp: "", retTypes: []string{"StdoutString", "StatusCode"},
+			convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
+		"bash.Read":       {exp: `read _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
+		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"_"}},
+		"bash.UnixTimeMs": {exp: "date +%s000", retTypes: []string{"int"}},
+		// fmt
+		"fmt.Print":   {exp: "echo -n"},
+		"fmt.Println": {exp: "echo"},
+		"fmt.Printf":  {exp: "printf"},
+		"fmt.Sprint":  {exp: "echo -n", retTypes: []string{"StdoutString"}},
+		"fmt.Sprintln": {exp: "echo", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
+			return "`echo " + strings.Join(arg, " ") + "`$'\\n'"
+		}},
+		"fmt.Sprintf": {exp: "printf", retTypes: []string{"StdoutString"}},
+		// strings
+		"strings.ReplaceAll": {exp: "\"${{*0}//{1}/{2}}\"", retTypes: []string{"_string"}},
+		"strings.ToUpper":    {exp: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []string{"string"}},
+		"strings.ToLower":    {exp: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []string{"string"}},
+		"strings.TrimSpace":  {exp: "echo {0}| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []string{"string"}},
+		"strings.TrimPrefix": {exp: "\"${{*0}#{1}}\"", retTypes: []string{"_string"}},
+		"strings.TrimSuffix": {exp: "\"${{*0}%{1}}\"", retTypes: []string{"_string"}},
+		"strings.Split": {exp: "", retTypes: []string{"[]string"}, convFunc: func(arg []string) string {
+			return "(`IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\" `)"
+		}},
+		"strings.Join":     {exp: "(IFS={1}; echo \"${{*0}[*]}\")", retTypes: []string{"string"}},
+		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []string{"bool"}},
+		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}},
+		// os
+		"os.Exit":     {exp: "exit"},
+		"os.Getwd":    {exp: "pwd", retTypes: []string{"StdoutString", "StatusCode"}},
+		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode", "StatusCode"}},
+		"os.Getpid":   {exp: "$$"},
+		"os.Getppid":  {exp: "$PPID"},
+		"os.Getuid":   {exp: "${UID:--1}"},
+		"os.Geteuid":  {exp: "${EUID:-${UID:--1}}"},
+		"os.Getgid":   {exp: "${GID:--1}"},
+		"os.Getegid":  {exp: "${EGID:-${GID:--1}}"},
+		"os.Hostname": {exp: "hostname", retTypes: []string{"StdoutString", "StatusCode"}},
+		"os.Getenv": {exp: "", convFunc: func(arg []string) string {
+			return "\"${" + trimQuote(arg[0]) + "}\""
+		}},
+		"os.Setenv": {exp: "", convFunc: func(arg []string) string {
+			return "export " + trimQuote(arg[0]) + "=" + arg[1]
+		}},
+		// TODO: cast
+		"int":             {exp: "", retTypes: []string{"_int"}},
+		"byte":            {exp: "", retTypes: []string{"_int"}},
+		"string":          {exp: "", retTypes: []string{"_string"}},
+		"strconv.Atoi":    {exp: "", retTypes: []string{"_int"}},
+		"strconv.Itoa":    {exp: "", retTypes: []string{"_string"}},
+		"bash.StatusCode": {exp: "", retTypes: []string{"_int"}},
+		// slice
+		"len": {exp: "", retTypes: []string{"_int"},
+			convFunc: func(arg []string) string { return "${#" + s.maybeArraySuffix(varName(arg[0])) + "}" }},
+		"append": {exp: "", retTypes: []string{"_ARG1"},
+			convFunc: func(arg []string) string {
+				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
+			}},
+	}
+	return &s
+}
+
 func (s *state) Scan() rune {
 	s.lastToken = s.Scanner.Scan()
 	return s.lastToken
@@ -565,88 +636,9 @@ func (s *state) procSentense(t string) {
 	}
 }
 
-func CompileFile(srcPath string) error {
-	r, err := os.Open(srcPath)
-	if err != nil {
-		return err
-	}
-	defer r.Close()
-	var s state
-	return s.Compile(r, srcPath)
-}
-
 func (s *state) Compile(r io.Reader, srcName string) error {
 	s.Init(r)
 	s.Filename = srcName
-	s.w = os.Stdout
-	s.imports = map[string]string{}
-	s.vars = map[string]string{}
-	s.funcs = map[string]shFunc{
-		"bash.Sleep":  {exp: "sleep"},
-		"bash.Exit":   {exp: "exit"},
-		"bash.Export": {exp: "export"},
-		"bash.Exec": {exp: "", retTypes: []string{"StdoutString", "StatusCode"},
-			convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
-		"bash.Read":       {exp: `read _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
-		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"_"}},
-		"bash.UnixTimeMs": {exp: "date +%s000", retTypes: []string{"int"}},
-		// fmt
-		"fmt.Print":   {exp: "echo -n"},
-		"fmt.Println": {exp: "echo"},
-		"fmt.Printf":  {exp: "printf"},
-		"fmt.Sprint":  {exp: "echo -n", retTypes: []string{"StdoutString"}},
-		"fmt.Sprintln": {exp: "echo", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
-			return "`echo " + strings.Join(arg, " ") + "`$'\\n'"
-		}},
-		"fmt.Sprintf": {exp: "printf", retTypes: []string{"StdoutString"}},
-		// strings
-		"strings.ReplaceAll": {exp: "\"${{*0}//{1}/{2}}\"", retTypes: []string{"_string"}},
-		"strings.ToUpper":    {exp: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []string{"string"}},
-		"strings.ToLower":    {exp: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []string{"string"}},
-		"strings.TrimSpace":  {exp: "echo {0}| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []string{"string"}},
-		"strings.TrimPrefix": {exp: "\"${{*0}#{1}}\"", retTypes: []string{"_string"}},
-		"strings.TrimSuffix": {exp: "\"${{*0}%{1}}\"", retTypes: []string{"_string"}},
-		"strings.Split": {exp: "", retTypes: []string{"[]string"}, convFunc: func(arg []string) string {
-			return "(`IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\" `)"
-		}},
-		"strings.Join":     {exp: "(IFS={1}; echo \"${{*0}[*]}\")", retTypes: []string{"string"}},
-		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []string{"bool"}},
-		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}},
-		// os
-		"os.Exit":     {exp: "exit"},
-		"os.Getwd":    {exp: "pwd", retTypes: []string{"StdoutString", "StatusCode"}},
-		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode", "StatusCode"}},
-		"os.Getpid":   {exp: "$$"},
-		"os.Getppid":  {exp: "$PPID"},
-		"os.Getuid":   {exp: "${UID:--1}"},
-		"os.Geteuid":  {exp: "${EUID:-${UID:--1}}"},
-		"os.Getgid":   {exp: "${GID:--1}"},
-		"os.Getegid":  {exp: "${EGID:-${GID:--1}}"},
-		"os.Hostname": {exp: "hostname", retTypes: []string{"StdoutString", "StatusCode"}},
-		"os.Getenv": {exp: "", convFunc: func(arg []string) string {
-			return "\"${" + trimQuote(arg[0]) + "}\""
-		}},
-		"os.Setenv": {exp: "", convFunc: func(arg []string) string {
-			return "export " + trimQuote(arg[0]) + "=" + arg[1]
-		}},
-		// TODO: cast
-		"int":             {exp: "", retTypes: []string{"_int"}},
-		"byte":            {exp: "", retTypes: []string{"_int"}},
-		"string":          {exp: "", retTypes: []string{"_string"}},
-		"strconv.Atoi":    {exp: "", retTypes: []string{"_int"}},
-		"strconv.Itoa":    {exp: "", retTypes: []string{"_string"}},
-		"bash.StatusCode": {exp: "", retTypes: []string{"_int"}},
-		// slice
-		"len": {exp: "", retTypes: []string{"_int"},
-			convFunc: func(arg []string) string { return "${#" + s.maybeArraySuffix(varName(arg[0])) + "}" }},
-		"append": {exp: "", retTypes: []string{"_ARG1"},
-			convFunc: func(arg []string) string {
-				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
-			}},
-	}
-
-	s.Writeln("#!/bin/sh")
-	s.Writeln("")
 
 	for tok := s.ScanWC(); tok != scanner.EOF; tok = s.ScanWC() {
 		if tok == '}' && len(s.cl) > 0 {
@@ -694,6 +686,24 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 		}
 	}
 	s.FlushLine()
+	return nil
+}
+
+func CompileFiles(sources []string) error {
+	s := newState()
+	s.Writeln("#!/bin/sh")
+	s.Writeln("")
+
+	for _, srcPath := range sources {
+		r, err := os.Open(srcPath)
+		if err != nil {
+			return err
+		}
+		defer r.Close()
+		if err := s.Compile(r, srcPath); err != nil {
+			return err
+		}
+	}
 	if _, ok := s.funcs["main"]; ok {
 		s.Writeln("main")
 	}
