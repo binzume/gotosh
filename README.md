@@ -104,6 +104,8 @@ function FizzBuzz() {
 - [strings.Join](https://pkg.go.dev/strings#Join)
 - [strings.Contains](https://pkg.go.dev/strings#Contains)
 - [strings.IndexAny](https://pkg.go.dev/strings#IndexAny)
+- [strconv.Atoi](https://pkg.go.dev/strconv#Atoi)
+- [strconv.Itoa](https://pkg.go.dev/strconv#Itoa)
 - [os.Exit](https://pkg.go.dev/os#Exit)
 - [os.Getwd](https://pkg.go.dev/os#Getwd)
 - [os.Chdir](https://pkg.go.dev/os#Chdir)
@@ -134,18 +136,17 @@ sliceの実装はbash専用です。zshの場合は `setopt KSH_ARRAYS` を追�
 
 ### 引数
 
-関数の最後の引数以外ではスライスを受け取ることはできません。
+関数の最後の引数以外ではスライスを受け取ることはできません。またすべての値はsliceなども含めて値渡しです。
 
 ### 戻り値
 
-関数の戻り値は標準出力として返します。基本的に値を返す関数の内部で標準出力に何かを出力することはできません。
-標準出力以外で値を返すことを明示したい場合は以下の型(type alias)が使えます。(名前しか見てないので同名のtypeを定義しても動作します)
+関数の結果は標準出力として返します。なので基本的に値を返す関数の内部で標準出力に何かを出力することはできません。
+標準出力以外で値を返したい場合は以下の型(type alias)が使えます。(名前しか見てないので同名のtypeを定義しても動作します)
 
-- `bash.StdoutString` (= string) は標準出力として関数の結果を返します (デフォルト動作)
 - `bash.TempVarString` (= string) は _tmpN 変数を使って値を返します。複数の値を返す必要がある場合に使います
 - `bash.StatusCode` (= byte) は関数の終了コードとして返します
 
-多値のサポートは戻り値の代入時に以下の組み合わせのみ動作します。
+多値の戻り値は以下の組み合わせに対応しています。
 
 - (*, StatusCode)
 - (TempVarString, TempVarString, ..., StatusCode)

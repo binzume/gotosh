@@ -7,15 +7,13 @@ import (
 	"time"
 )
 
-type StdoutInt = int
-type StdoutString = string
 type StatusCode = byte
 type TempVarInt = int
 type TempVarString = string
 
 var IFS = " \t\n"
 
-func Exec(name string, args ...string) (StdoutString, StatusCode) {
+func Exec(name string, args ...string) (string, StatusCode) {
 	out, err := exec.Command(name, args...).Output()
 	if err != nil {
 		return string(out), 1
@@ -23,7 +21,7 @@ func Exec(name string, args ...string) (StdoutString, StatusCode) {
 	return strings.TrimSuffix(string(out), "\n"), 0
 }
 
-func Read() (StdoutString, StatusCode) {
+func Read() (string, StatusCode) {
 	line := make([]byte, 0, 100)
 	for {
 		b := make([]byte, 1)
