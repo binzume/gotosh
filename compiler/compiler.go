@@ -38,10 +38,6 @@ type shExpression struct {
 	retTypes []string
 }
 
-func (f *shExpression) StdoutValue() bool {
-	return f.stdout || len(f.retTypes) > 0 && (f.retTypes[0] == "StdoutString" || f.retTypes[0] == "StdoutInt")
-}
-
 func (f *shExpression) AsValue() string {
 	exp := f.exp
 	if len(f.retTypes) > 0 && f.retTypes[0] == "StatusCode" {
@@ -51,11 +47,11 @@ func (f *shExpression) AsValue() string {
 		exp = "`" + exp + " >&2 && echo \"$_tmp0\"`"
 	} else if len(f.retTypes) > 0 && f.retTypes[0] == "_INT_EXP" {
 		exp = "$(( " + exp + " ))"
-	} else if f.StdoutValue() && len(f.retTypes) > 0 && strings.HasPrefix(f.retTypes[0], "[]") {
+	} else if f.stdout && len(f.retTypes) > 0 && strings.HasPrefix(f.retTypes[0], "[]") {
 		exp = "(`" + exp + "`)"
-	} else if f.StdoutValue() && len(f.retTypes) > 0 && f.retTypes[0] == "int" {
+	} else if f.stdout && len(f.retTypes) > 0 && f.retTypes[0] == "int" {
 		exp = "`" + exp + "`"
-	} else if f.StdoutValue() {
+	} else if f.stdout {
 		exp = "\"`" + exp + "`\""
 	}
 	return strings.TrimSpace(exp)
@@ -73,7 +69,7 @@ func RetVarName(retTypes []string, i int) string {
 }
 
 func (f *shExpression) AsExec() string {
-	if f.StdoutValue() {
+	if f.stdout {
 		return strings.TrimSpace(f.exp + " >/dev/null")
 	}
 	return strings.TrimSpace(f.exp)
@@ -81,6 +77,7 @@ func (f *shExpression) AsExec() string {
 
 type shFunc struct {
 	exp      string
+	stdout   bool
 	retTypes []string
 	convFunc func(arg []string) string
 }
@@ -108,60 +105,63 @@ func newState() *state {
 		"bash.Sleep":      {exp: "sleep"},
 		"bash.Exit":       {exp: "exit"},
 		"bash.Export":     {exp: "export"},
-		"bash.Exec":       {exp: "", retTypes: []string{"StdoutString", "StatusCode"}},
+		"bash.Exec":       {retTypes: []string{"string", "StatusCode"}, stdout: true},
 		"bash.Read":       {exp: `read _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
-		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"_"}},
-		"bash.UnixTimeMs": {exp: "date +%s000", retTypes: []string{"int"}},
+		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"string"}},
+		"bash.UnixTimeMs": {exp: "date +%s000", retTypes: []string{"int"}, stdout: true},
 		// fmt
 		"fmt.Print":   {exp: "echo -n"},
 		"fmt.Println": {exp: "echo"},
 		"fmt.Printf":  {exp: "printf"},
-		"fmt.Sprint":  {exp: "echo -n", retTypes: []string{"StdoutString"}},
-		"fmt.Sprintln": {exp: "echo", retTypes: []string{"_string"}, convFunc: func(arg []string) string {
+		"fmt.Sprint":  {exp: "echo -n", retTypes: []string{"string"}, stdout: true},
+		"fmt.Sprintln": {retTypes: []string{"string"}, convFunc: func(arg []string) string {
 			return "`echo " + strings.Join(arg, " ") + "`$'\\n'"
 		}},
-		"fmt.Sprintf": {exp: "printf", retTypes: []string{"StdoutString"}},
+		"fmt.Sprintf": {exp: "printf", retTypes: []string{"string"}, stdout: true},
 		// strings
-		"strings.ReplaceAll": {exp: "\"${{*0}//{1}/{2}}\"", retTypes: []string{"_string"}},
-		"strings.ToUpper":    {exp: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []string{"string"}},
-		"strings.ToLower":    {exp: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []string{"string"}},
-		"strings.TrimSpace":  {exp: "echo {0}| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []string{"string"}},
-		"strings.TrimPrefix": {exp: "\"${{*0}#{1}}\"", retTypes: []string{"_string"}},
-		"strings.TrimSuffix": {exp: "\"${{*0}%{1}}\"", retTypes: []string{"_string"}},
-		"strings.Split": {exp: "", retTypes: []string{"[]string"}, convFunc: func(arg []string) string {
+		"strings.ReplaceAll": {exp: "\"${{*0}//{1}/{2}}\"", retTypes: []string{"string"}},
+		"strings.ToUpper":    {exp: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []string{"string"}, stdout: true},
+		"strings.ToLower":    {exp: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []string{"string"}, stdout: true},
+		"strings.TrimSpace":  {exp: "echo {0}| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []string{"string"}, stdout: true},
+		"strings.TrimPrefix": {exp: "\"${{*0}#{1}}\"", retTypes: []string{"string"}},
+		"strings.TrimSuffix": {exp: "\"${{*0}%{1}}\"", retTypes: []string{"string"}},
+		"strings.Split": {retTypes: []string{"[]string"}, stdout: true, convFunc: func(arg []string) string {
 			return "(`IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\" `)"
 		}},
-		"strings.Join":     {exp: "(IFS={1}; echo \"${{*0}[*]}\")", retTypes: []string{"string"}},
-		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []string{"bool"}},
-		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}},
+		"strings.Join":     {exp: "(IFS={1}; echo \"${{*0}[*]}\")", retTypes: []string{"string"}, stdout: true},
+		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []string{"bool"}, stdout: true},
+		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}, stdout: true},
 		// os
 		"os.Exit":     {exp: "exit"},
-		"os.Getwd":    {exp: "pwd", retTypes: []string{"StdoutString", "StatusCode"}},
-		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode", "StatusCode"}},
+		"os.Getwd":    {exp: "pwd", retTypes: []string{"string", "StatusCode"}, stdout: true},
+		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode", "StatusCode"}, stdout: true},
 		"os.Getpid":   {exp: "$$"},
 		"os.Getppid":  {exp: "$PPID"},
 		"os.Getuid":   {exp: "${UID:--1}"},
 		"os.Geteuid":  {exp: "${EUID:-${UID:--1}}"},
 		"os.Getgid":   {exp: "${GID:--1}"},
 		"os.Getegid":  {exp: "${EGID:-${GID:--1}}"},
-		"os.Hostname": {exp: "hostname", retTypes: []string{"StdoutString", "StatusCode"}},
-		"os.Getenv": {exp: "", convFunc: func(arg []string) string {
+		"os.Hostname": {exp: "hostname", retTypes: []string{"string", "StatusCode"}, stdout: true},
+		"os.Getenv": {convFunc: func(arg []string) string {
 			return "\"${" + trimQuote(arg[0]) + "}\""
 		}},
-		"os.Setenv": {exp: "", convFunc: func(arg []string) string {
+		"os.Setenv": {convFunc: func(arg []string) string {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
+		"exec.Command":     {exp: "echo -n ", retTypes: []string{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
+		"exec.Cmd__Output": {exp: "bash -c", retTypes: []string{"string", "StatusCode"}, stdout: true},
+		"reflect.TypeOf":   {retTypes: []string{"_string"}, convFunc: func(arg []string) string { return `"` + s.vars[varName(arg[0])] + `"` }},
 		// TODO: cast
-		"int":             {exp: "", retTypes: []string{"_int"}},
-		"byte":            {exp: "", retTypes: []string{"_int"}},
-		"string":          {exp: "", retTypes: []string{"_string"}},
-		"strconv.Atoi":    {exp: "", retTypes: []string{"_int"}},
-		"strconv.Itoa":    {exp: "", retTypes: []string{"_string"}},
-		"bash.StatusCode": {exp: "", retTypes: []string{"_int"}},
+		"int":             {retTypes: []string{"int"}},
+		"byte":            {retTypes: []string{"int"}},
+		"string":          {retTypes: []string{"string"}},
+		"strconv.Atoi":    {retTypes: []string{"int"}},
+		"strconv.Itoa":    {retTypes: []string{"string"}},
+		"bash.StatusCode": {retTypes: []string{"int"}},
 		// slice
-		"len": {exp: "", retTypes: []string{"_int"},
+		"len": {retTypes: []string{"int"},
 			convFunc: func(arg []string) string { return "${#" + s.maybeArraySuffix(varName(arg[0])) + "}" }},
-		"append": {exp: "", retTypes: []string{"_ARG1"},
+		"append": {retTypes: []string{"_ARG1"},
 			convFunc: func(arg []string) string {
 				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
 			}},
@@ -304,7 +304,7 @@ func (s *state) readFuncCall(name string) *shExpression {
 
 	if ns != "" {
 		if s.vars[ns] != "" {
-			name = s.vars[ns] + "__" + name
+			name = strings.TrimPrefix(s.vars[ns], "*") + "__" + name
 			args = append([]string{`"` + varValue(ns) + `"`}, args...)
 		} else {
 			pkg := s.imports[ns]
@@ -331,7 +331,7 @@ func (s *state) readFuncCall(name string) *shExpression {
 	if len(f.retTypes) > 0 && f.retTypes[0] == "_ARG1" && len(args) > 0 {
 		retVar = varName(args[0])
 	}
-	return &shExpression{exp: exp, retTypes: f.retTypes, retVar: retVar, stdout: len(f.retTypes) > 0 && !strings.HasPrefix(f.retTypes[0], "_")}
+	return &shExpression{exp: exp, retTypes: f.retTypes, retVar: retVar, stdout: f.stdout}
 }
 
 func (s *state) readExpression(typeHint string) *shExpression {
@@ -533,7 +533,7 @@ func (s *state) procFunc() {
 	if tok == '(' {
 		s.Scan()
 		args = append(args, s.TokenText())
-		t := strings.ReplaceAll(s.readType(false), "*", "") // pointer is not supported
+		t := strings.TrimPrefix(s.readType(false), "*")
 		s.vars[args[len(argTypes)]] = t
 		argTypes = append(argTypes, t)
 		s.Scan()
@@ -575,7 +575,7 @@ func (s *state) procFunc() {
 		}
 	}
 	s.cl = append(s.cl, "}")
-	s.funcs[name] = shFunc{exp: name, retTypes: retTypes}
+	s.funcs[name] = shFunc{exp: name, retTypes: retTypes, stdout: len(retTypes) > 0 && retTypes[0] != "StatusCode" && retTypes[0] != "TempVarString"}
 }
 
 func (s *state) procFor() {
