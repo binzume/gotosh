@@ -20,5 +20,5 @@ func FizzBuzz(n int) {
 }
 
 func main() {
-	FizzBuzz(100)
+	FizzBuzz(50)
 }

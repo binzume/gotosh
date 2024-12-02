@@ -24,5 +24,5 @@ jobs:
       run: ./compare_output.sh fizz_buzz
     - name: Test string_sample
       run: ./compare_output.sh string_sample
-    - name: Test slice_sample
-      run: ./compare_output.sh slice_sample
+    - name: Test read_stdin
+      run: ./compare_output.sh read_stdin
