@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/binzume/gotobsh/compiler"
+	"github.com/binzume/gotosh/compiler"
 )
 
 func main() {

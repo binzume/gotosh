@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/binzume/gotobsh/bash"
+	"github.com/binzume/gotosh/bash"
 )
 
 func routine(i int) {
