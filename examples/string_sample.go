@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -34,8 +35,6 @@ func main() {
 	fmt.Println("s=", s0)
 	fmt.Println("trim space", strings.TrimSpace(s0))
 
-	//fmt.Println("split", strings.Split(s0, "B")) // not POSIX
-
 	fmt.Println("msg:", getMessage("foobar"))
 
 	fmt.Print(123, 456)
@@ -47,4 +46,9 @@ func main() {
 	s2 := fmt.Sprintln("#Sprintln#", "#test#")
 	s3 := fmt.Sprintf("#Sprintf %d %04d %s", 123, 45, "#test#")
 	fmt.Println(s1, s2, s3)
+
+	intValue, _ := strconv.Atoi("12345")
+	strValue := strconv.Itoa(67890)
+
+	fmt.Println(intValue, strValue)
 }

@@ -35,6 +35,8 @@ func main() {
 	}
 	fmt.Println(strings.Join(ss, ":"))
 
-	s := "abcdefghijk"
+	s := "abcdefghijk:01234:uvwxyz"
 	fmt.Println(s[1+2 : 5+3])
+
+	fmt.Println("split", strings.Split(s, ":")) // not POSIX
 }

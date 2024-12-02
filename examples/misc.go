@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 
 	"github.com/binzume/gotosh/bash"
 )
@@ -52,7 +53,6 @@ func main() {
 	fmt.Println(addInt(n-444, 999))
 
 	fmt.Println(addInt2(4, 5))
-
 	addInt2(6, 7)
 
 	msg, status := returnStringAndStatus()
@@ -67,4 +67,7 @@ func main() {
 	// method call
 	var t User = "test"
 	t.Hello()
+
+	// for debugging
+	fmt.Println(reflect.TypeOf(msg))
 }
