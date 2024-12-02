@@ -134,7 +134,7 @@ func newState() *state {
 		// os
 		"os.Exit":     {exp: "exit"},
 		"os.Getwd":    {exp: "pwd", retTypes: []string{"string", "StatusCode"}, stdout: true},
-		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode", "StatusCode"}, stdout: true},
+		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode"}, stdout: true},
 		"os.Getpid":   {exp: "$$"},
 		"os.Getppid":  {exp: "$PPID"},
 		"os.Getuid":   {exp: "${UID:--1}"},
@@ -155,7 +155,7 @@ func newState() *state {
 		"int":             {retTypes: []string{"int"}},
 		"byte":            {retTypes: []string{"int"}},
 		"string":          {retTypes: []string{"string"}},
-		"strconv.Atoi":    {retTypes: []string{"int"}},
+		"strconv.Atoi":    {retTypes: []string{"int", "StatusCode"}},
 		"strconv.Itoa":    {retTypes: []string{"string"}},
 		"bash.StatusCode": {retTypes: []string{"int"}},
 		// slice
@@ -448,15 +448,14 @@ func (s *state) procAssign(names []string, local bool, readonly bool) {
 	}
 	e := s.readExpression(s.vars[names[0]])
 	v := e.AsValue()
-	stdoutIndex := -1
+	primaryIndex := -1
 	statusIndex := -1
 	for i, name := range names {
 		vn := RetVarName(e.retTypes, i)
-		if e.retVar != name && vn == "" {
-			stdoutIndex = i
-		}
 		if vn == "?" {
 			statusIndex = i
+		} else if e.retVar != name && vn == "" {
+			primaryIndex = i
 		}
 		if s.vars[name] == "" {
 			if len(e.retTypes) > i && e.retTypes[i] != "" {
@@ -470,26 +469,26 @@ func (s *state) procAssign(names []string, local bool, readonly bool) {
 		v = "()"
 	}
 	writeAssign := func(i int) {
-		if local {
+		if local && names[i] != "_" {
 			s.Write("local ")
 			if readonly {
 				s.Write("-r ")
 			}
 		}
 		vn := RetVarName(e.retTypes, i)
-		if i == stdoutIndex && v != "" {
+		if i == primaryIndex && v != "" {
 			if local && statusIndex >= 0 {
 				s.Writeln(names[i]) // to avoid local modify status code
 			}
 			s.Writeln(names[i] + "=" + v)
-		} else if vn != "" && names[i] != e.retVar {
+		} else if vn != "" && names[i] != e.retVar && names[i] != "_" {
 			s.Writeln(names[i] + "=\"$" + vn + "\"")
-		} else if local {
+		} else if local && names[i] != "_" {
 			s.Writeln(names[i])
 		}
 	}
-	if stdoutIndex >= 0 {
-		writeAssign(stdoutIndex)
+	if primaryIndex >= 0 {
+		writeAssign(primaryIndex)
 	} else {
 		s.Writeln(e.AsExec())
 	}
@@ -497,7 +496,7 @@ func (s *state) procAssign(names []string, local bool, readonly bool) {
 		writeAssign(statusIndex)
 	}
 	for i := range names {
-		if i != stdoutIndex && i != statusIndex {
+		if i != primaryIndex && i != statusIndex {
 			writeAssign(i)
 		}
 	}
