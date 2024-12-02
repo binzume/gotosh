@@ -26,3 +26,5 @@ jobs:
       run: ./compare_output.sh string_sample
     - name: Test read_stdin
       run: ./compare_output.sh read_stdin
+    - name: Test misc
+      run: ./compare_output.sh misc
