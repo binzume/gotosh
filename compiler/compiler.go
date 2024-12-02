@@ -191,15 +191,15 @@ func (s *state) FlushLine() {
 }
 
 func (s *state) Write(str ...any) {
-	s.Indent()
 	s.FlushLine()
+	s.Indent()
 	fmt.Fprint(s.w, str...)
 	s.middleofline = true
 }
 
 func (s *state) Writeln(str ...any) {
-	s.Indent()
 	s.FlushLine()
+	s.Indent()
 	fmt.Fprintln(s.w, str...)
 	s.middleofline = false
 }
