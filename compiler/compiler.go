@@ -587,7 +587,11 @@ func (s *state) procFunc() {
 		}
 	}
 	s.cl = append(s.cl, "}")
-	s.funcs[name] = shFunc{exp: name, retTypes: retTypes, stdout: len(retTypes) > 0 && retTypes[0] != "StatusCode" && retTypes[0] != "TempVarString"}
+	f := shFunc{exp: name, retTypes: retTypes, stdout: len(retTypes) > 0 && retTypes[0] != "StatusCode" && retTypes[0] != "TempVarString"}
+	s.funcs[name] = f
+	if n, found := strings.CutPrefix(name, "GOTOSH_"); found {
+		s.funcs[strings.ReplaceAll(n, "_", ".")] = f
+	}
 }
 
 func (s *state) procFor() {

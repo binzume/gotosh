@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"reflect"
+	"strings"
 
 	"github.com/binzume/gotosh/bash"
 )
@@ -31,6 +32,17 @@ func returnStringAndStatus() (string, bash.StatusCode) {
 // Same as bash.StatusCode
 type StatusCode = int8
 
+func GOTOSH_strings_Index(s, f string) int {
+	fl := len(f)
+	end := len(s) - fl + 1
+	for i := 0; i < end; i++ {
+		if s[i:i+fl] == f {
+			return i
+		}
+	}
+	return -1
+}
+
 func returnStringAndStatus2() (StatusCode, string) {
 	return 111, "bbb"
 }
@@ -39,8 +51,7 @@ func returnStringMulti() (bash.TempVarString, bash.TempVarString, bash.TempVarSt
 	return "abc", "def", "ghi"
 }
 
-// only available int or string type...
-type User string
+type User string // only available int or string type...
 
 func (a User) Hello() {
 	fmt.Println("I am " + a + ".")
@@ -70,4 +81,6 @@ func main() {
 
 	// for debugging
 	fmt.Println(reflect.TypeOf(msg))
+
+	fmt.Println(strings.Index("hello, world", "ld"))
 }
