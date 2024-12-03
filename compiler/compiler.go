@@ -94,6 +94,7 @@ type state struct {
 	w            io.Writer
 	bufLine      string
 	middleofline bool
+	skipNextScan bool
 }
 
 func newState() *state {
@@ -170,13 +171,17 @@ func newState() *state {
 }
 
 func (s *state) Scan() rune {
-	s.lastToken = s.Scanner.Scan()
+	if s.skipNextScan {
+		s.skipNextScan = false
+	} else {
+		s.lastToken = s.Scanner.Scan()
+	}
 	return s.lastToken
 }
 
 func (s *state) ScanWC() rune {
 	s.Mode &^= scanner.SkipComments
-	s.lastToken = s.Scanner.Scan()
+	s.Scan()
 	s.Mode |= scanner.SkipComments
 	return s.lastToken
 }
@@ -336,9 +341,7 @@ func (s *state) readFuncCall(name string) *shExpression {
 
 func (s *state) readExpression(typeHint string) *shExpression {
 	exp := ""
-	if s.Peek() == 13 || s.Peek() == 10 {
-		return &shExpression{exp: ""}
-	}
+	l := s.Line
 	s.Scan()
 	if s.lastToken == '=' {
 		s.Scan()
@@ -358,7 +361,8 @@ func (s *state) readExpression(typeHint string) *shExpression {
 	var funcRet *shExpression
 	var singleVar = true
 	var isString = typeHint == "string"
-	for ; s.lastToken != scanner.EOF; s.Scan() {
+	var compareString = false
+	for ; s.lastToken != scanner.EOF && (nest > 0 || s.Line == l); s.Scan() {
 		tok := s.lastToken
 		if nest == 0 && tok == ')' || typeHint != "" && tok == ':' || tok == ',' || tok == ';' || tok == ']' || tok == '{' || tok == '}' {
 			break
@@ -367,12 +371,19 @@ func (s *state) readExpression(typeHint string) *shExpression {
 		} else if tok == ')' {
 			nest--
 		}
+		l = s.Line
 		if isString && tok == '+' || tok == ':' {
 			continue
 		}
 		singleVar = singleVar && tok == scanner.Ident
 		isString = isString || tok == scanner.String
 		t := s.TokenText()
+		if isString && t == "=" && s.Peek() == '=' {
+			s.Scan()
+			t = " == "
+			compareString = true
+		}
+
 		if tok == scanner.String {
 			t = escapeShellString(t)
 		}
@@ -418,25 +429,27 @@ func (s *state) readExpression(typeHint string) *shExpression {
 			s.readType(false)
 		}
 		tokens++
-		if nest == 0 && s.Peek() == 13 || s.Peek() == 10 { // TODO
-			break
-		}
 	}
+	s.skipNextScan = s.Line != l
 	if funcRet != nil && exp == funcRet.AsValue() {
 		return funcRet
 	}
 	if tokens == 1 && !isString && singleVar {
-		exp = "\"" + varValue(exp) + "\""
+		exp = varValue(exp)
 	}
-	retTypes := []string{}
-	if tokens > 1 && !isString {
-		retTypes = append(retTypes, "_INT_EXP")
+	e := &shExpression{exp: exp}
+	if compareString {
+		e.stdout = true
+		e.retTypes = append(e.retTypes, "StatusCode")
+		e.exp = "[ ! " + exp + " ]"
+	} else if tokens > 1 && !isString {
+		e.retTypes = append(e.retTypes, "_INT_EXP")
 	} else if typeHint != "" {
-		retTypes = append(retTypes, typeHint)
+		e.retTypes = append(e.retTypes, typeHint)
 	} else if isString {
-		retTypes = append(retTypes, "string")
+		e.retTypes = append(e.retTypes, "string")
 	}
-	return &shExpression{exp: exp, retTypes: retTypes}
+	return e
 }
 
 func (s *state) procAssign(names []string, local bool, readonly bool) {
