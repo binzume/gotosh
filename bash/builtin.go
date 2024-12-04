@@ -52,6 +52,17 @@ func SubStr(s string, pos, len int) string {
 	return s[pos : pos+len]
 }
 
+func Arg(n int) string {
+	if n >= len(os.Args) {
+		return ""
+	}
+	return os.Args[n]
+}
+
+func NArgs() int {
+	return len(os.Args)
+}
+
 // TODO: coreutil.Sleep
 func Sleep(t float32) {
 	time.Sleep(time.Duration(t*1000) * time.Millisecond)

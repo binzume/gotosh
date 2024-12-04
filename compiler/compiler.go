@@ -61,7 +61,7 @@ func RetVarName(retTypes []string, i int) string {
 	if len(retTypes) > i {
 		if retTypes[i] == "StatusCode" {
 			return "?"
-		} else if retTypes[i] == "TempVarString" || i > 0 {
+		} else if retTypes[i] == "TempVarString" || retTypes[i] == "*os.File" || i > 0 { // TODO
 			return "_tmp" + fmt.Sprint(i)
 		}
 	}
@@ -110,6 +110,8 @@ func newState() *state {
 		"bash.Read":       {exp: `IFS= read -r -s _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
 		"bash.ReadLine":   {exp: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []string{"TempVarString", "StatusCode"}},
 		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"string"}},
+		"bash.Arg":        {exp: `eval echo \\${{0}}`, retTypes: []string{"string"}, stdout: true},
+		"bash.NArgs":      {exp: `$(( $# + 1 ))`, retTypes: []string{"int"}},
 		"bash.UnixTimeMs": {exp: "date +%s000", retTypes: []string{"int"}, stdout: true},
 		// fmt
 		"fmt.Print":   {exp: "echo -n"},
@@ -134,9 +136,8 @@ func newState() *state {
 		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []string{"bool"}, stdout: true},
 		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}, stdout: true},
 		// os
-		"os.Args":     {exp: `"${@}"`, retTypes: []string{"[]string"}}, // variable
-		"os.Stdin":    {exp: "0", retTypes: []string{"io.Reader"}},     // variable
-		"os.Stdout":   {exp: "1", retTypes: []string{"io.Reader"}},     // variable
+		"os.Stdin":    {exp: "0", retTypes: []string{"io.Reader"}}, // variable
+		"os.Stdout":   {exp: "1", retTypes: []string{"io.Reader"}}, // variable
 		"os.Exit":     {exp: "exit"},
 		"os.Getwd":    {exp: "pwd", retTypes: []string{"string", "StatusCode"}, stdout: true},
 		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode"}, stdout: true},
@@ -153,13 +154,13 @@ func newState() *state {
 		"os.Setenv": {convFunc: func(arg []string) string {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
-		"os.Open":                    {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))"<{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"TempVarString", "StatusCode"}},
-		"os.Create":                  {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))">{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"TempVarString", "StatusCode"}},
-		"exec.Command":               {exp: "echo -n ", retTypes: []string{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
-		"exec.Cmd__Output":           {exp: "bash -c", retTypes: []string{"string", "StatusCode"}, stdout: true},
-		"reflect.TypeOf":             {retTypes: []string{"_string"}, convFunc: func(arg []string) string { return `"` + s.vars[varName(arg[0])] + `"` }},
-		"TempVarString__Close":       {exp: `eval "exec {0}<&-;exec {0}>&-"`}, // TODO
-		"TempVarString__WriteString": {exp: `echo -n {1}>&{0}`},               // TODO
+		"os.Open":              {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))"<{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"*os.File", "StatusCode"}},
+		"os.Create":            {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))">{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"*os.File", "StatusCode"}},
+		"exec.Command":         {exp: "echo -n ", retTypes: []string{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
+		"exec.Cmd__Output":     {exp: "bash -c", retTypes: []string{"string", "StatusCode"}, stdout: true},
+		"reflect.TypeOf":       {retTypes: []string{"_string"}, convFunc: func(arg []string) string { return `"` + s.vars[varName(arg[0])] + `"` }},
+		"os.File__Close":       {exp: `eval "exec {0}<&-;exec {0}>&-"`}, // TODO
+		"os.File__WriteString": {exp: `echo -n {1}>&{0}`},               // TODO
 		// TODO: cast
 		"int":             {retTypes: []string{"int"}},
 		"byte":            {retTypes: []string{"int"}},
@@ -462,11 +463,12 @@ func (s *state) readExpression(typeHint string) *shExpression {
 	return e
 }
 
-func (s *state) procAssign(names []string, local bool, readonly bool) {
+func (s *state) procAssign(names []string, decrare, readonly bool) {
+	typ := ""
 	if len(names) == 0 {
 		s.Scan()
 		name := s.TokenText()
-		s.vars[name] = s.readType(false)
+		typ = s.readType(false)
 		names = append(names, name)
 	}
 	e := s.readExpression(s.vars[names[0]])
@@ -480,18 +482,24 @@ func (s *state) procAssign(names []string, local bool, readonly bool) {
 		} else if e.retVar != name && vn == "" {
 			primaryIndex = i
 		}
-		if s.vars[name] == "" {
+		if typ != "" {
+			s.vars[name] = typ
+		} else if decrare || s.vars[name] == "" {
 			if len(e.retTypes) > i && e.retTypes[i] != "" {
 				s.vars[name] = e.retTypes[i]
 			} else {
-				s.vars[name] = "" // TODO
+				s.vars[name] = "any"
 			}
+		}
+		if s.vars[name] == "TempVarString" { // TODO
+			s.vars[name] = "string"
 		}
 	}
 	if v == "" && strings.HasPrefix(s.vars[names[0]], "[]") {
 		v = "()"
 	}
 	writeAssign := func(i int) {
+		local := decrare && s.funcName != ""
 		if local && names[i] != "_" {
 			s.Write("local ")
 			if readonly {
@@ -660,7 +668,7 @@ func (s *state) procSentense(t string) {
 	}
 	if tok == ':' {
 		s.Scan() // =
-		s.procAssign(names, s.funcName != "", false)
+		s.procAssign(names, true, false)
 	} else if tok == '=' {
 		s.procAssign(names, false, false)
 	} else if tok == '(' || tok == '.' {
@@ -707,9 +715,9 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "func":
 				s.procFunc()
 			case "var":
-				s.procAssign(nil, s.funcName != "", false)
+				s.procAssign(nil, true, false)
 			case "const":
-				s.procAssign(nil, s.funcName != "", true)
+				s.procAssign(nil, true, true)
 			case "go":
 				s.Writeln(s.readExpression("").AsExec() + " &")
 			default:
@@ -739,7 +747,7 @@ func CompileFiles(sources []string) error {
 		}
 	}
 	if _, ok := s.funcs["main"]; ok {
-		s.Writeln("main $0 \"${@}\"")
+		s.Writeln("main \"${@}\"")
 	}
 	return nil
 }
