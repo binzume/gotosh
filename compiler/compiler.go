@@ -133,6 +133,7 @@ func newState() *state {
 		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []string{"bool"}, stdout: true},
 		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}, stdout: true},
 		// os
+		"os.Args":     {exp: `"${@}"`, retTypes: []string{"[]string"}}, // variable
 		"os.Exit":     {exp: "exit"},
 		"os.Getwd":    {exp: "pwd", retTypes: []string{"string", "StatusCode"}, stdout: true},
 		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode"}, stdout: true},
