@@ -297,14 +297,18 @@ func (s *state) readFuncCall(name string) *shExpression {
 	}
 
 	var args []string
-	for s.lastToken != scanner.EOF && s.lastToken != ')' {
-		e := s.readExpression("")
-		args = append(args, e.AsValue())
-		for i := range e.retTypes {
-			if i != 0 && RetVarName(e.retTypes, i) != "" {
-				args = append(args, `"`+varValue(RetVarName(e.retTypes, i))+`"`)
+	if s.lastToken == '(' {
+		for s.lastToken != scanner.EOF && s.lastToken != ')' {
+			e := s.readExpression("")
+			args = append(args, e.AsValue())
+			for i := range e.retTypes {
+				if i != 0 && RetVarName(e.retTypes, i) != "" {
+					args = append(args, `"`+varValue(RetVarName(e.retTypes, i))+`"`)
+				}
 			}
 		}
+	} else {
+		s.skipNextScan = true
 	}
 
 	if ns != "" {
@@ -361,7 +365,6 @@ func (s *state) readExpression(typeHint string) *shExpression {
 	var funcRet *shExpression
 	var singleVar = true
 	var isString = typeHint == "string"
-	var compareString = false
 	for ; s.lastToken != scanner.EOF && (nest > 0 || s.Line == l); s.Scan() {
 		tok := s.lastToken
 		if nest == 0 && tok == ')' || typeHint != "" && tok == ':' || tok == ',' || tok == ';' || tok == ']' || tok == '{' || tok == '}' {
@@ -371,17 +374,16 @@ func (s *state) readExpression(typeHint string) *shExpression {
 		} else if tok == ')' {
 			nest--
 		}
-		l = s.Line
 		if isString && tok == '+' || tok == ':' {
 			continue
 		}
 		singleVar = singleVar && tok == scanner.Ident
 		isString = isString || tok == scanner.String
 		t := s.TokenText()
-		if isString && t == "=" && s.Peek() == '=' {
+		if isString && (t == "=" || t == "!") && s.Peek() == '=' {
 			s.Scan()
-			t = " == "
-			compareString = true
+			t = " " + t + "= "
+			typeHint = "bool"
 		}
 
 		if tok == scanner.String {
@@ -394,10 +396,10 @@ func (s *state) readExpression(typeHint string) *shExpression {
 			ot := t
 			t = s.maybeArraySuffix(t)
 			if t == "true" {
-				tok = scanner.Int
+				singleVar = false
 				t = "1"
 			} else if t == "false" || t == "nil" {
-				tok = scanner.Int
+				singleVar = false
 				t = "0"
 			} else if s.Peek() == '[' {
 				s.Scan()
@@ -428,6 +430,7 @@ func (s *state) readExpression(typeHint string) *shExpression {
 		if exp == "[]" {
 			s.readType(false)
 		}
+		l = s.Line
 		tokens++
 	}
 	s.skipNextScan = s.Line != l
@@ -438,16 +441,15 @@ func (s *state) readExpression(typeHint string) *shExpression {
 		exp = varValue(exp)
 	}
 	e := &shExpression{exp: exp}
-	if compareString {
-		e.stdout = true
-		e.retTypes = append(e.retTypes, "StatusCode")
+	if isString && typeHint == "bool" {
 		e.exp = "[ ! " + exp + " ]"
+		e.retTypes = []string{"StatusCode"}
 	} else if tokens > 1 && !isString {
-		e.retTypes = append(e.retTypes, "_INT_EXP")
+		e.retTypes = []string{"_INT_EXP"}
 	} else if typeHint != "" {
-		e.retTypes = append(e.retTypes, typeHint)
+		e.retTypes = []string{"typeHint"}
 	} else if isString {
-		e.retTypes = append(e.retTypes, "string")
+		e.retTypes = []string{"string"}
 	}
 	return e
 }
@@ -589,56 +591,51 @@ func (s *state) procFunc() {
 	s.cl = append(s.cl, "}")
 	f := shFunc{exp: name, retTypes: retTypes, stdout: len(retTypes) > 0 && retTypes[0] != "StatusCode" && retTypes[0] != "TempVarString"}
 	s.funcs[name] = f
-	if n, found := strings.CutPrefix(name, "GOTOSH_"); found {
+	if n, found := strings.CutPrefix(name, "GOTOSH_FUNC_"); found {
 		s.funcs[strings.ReplaceAll(n, "_", ".")] = f
 	}
 }
 
 func (s *state) procFor() {
-	f := []string{"", "", ""}
+	f := []*shExpression{{}, {}, {}}
 
 	n := 0
-	for s.lastToken != scanner.EOF && n < 3 {
-		f[n] = s.readExpression("").AsExec()
-		n++
-		if s.lastToken == '{' {
-			break
-		}
+	for ; s.lastToken != scanner.EOF && s.lastToken != '{' && n < 3; n++ {
+		f[n] = s.readExpression("")
 	}
 
 	if s.useExFor {
-		s.Writeln("for (( " + f[0] + "; " + f[1] + "; " + f[2] + " )); do")
+		s.Writeln("for (( " + f[0].AsExec() + "; " + f[1].AsExec() + "; " + f[2].AsExec() + " )); do")
 		s.cl = append(s.cl, "done")
 		return
 	}
 
 	condIdx := 0
 	if n > 1 {
-		s.Writeln(f[0])
+		s.Writeln(f[0].AsExec())
 		condIdx = 1
 	}
 	cond := "true"
-	if n >= condIdx && f[condIdx] != "" {
-		cond = "[ $(( " + f[condIdx] + " )) -ne 0 ]"
+	if f[condIdx].AsValue() != "" {
+		cond = "[ " + f[condIdx].AsValue() + " -ne 0 ]"
 	}
-	s.Writeln("while " + cond + "; do")
+	s.Writeln("while " + cond + "; do :")
 	end := "done"
-	if n > 2 {
-		end = "let \"" + f[2] + "\"; done" // TODO continue...
+	if f[2].AsExec() != "" {
+		end = "let \"" + f[2].AsExec() + "\"; done" // TODO continue...
 	}
 	s.cl = append(s.cl, end)
 }
 
 func (s *state) procIf() {
-	s.Writeln("if [ " + s.readExpression("bool").AsValue() + " -ne 0 ]; then")
+	s.Writeln("if [ " + s.readExpression("bool").AsValue() + " -ne 0 ]; then :")
 	s.cl = append(s.cl, "fi")
 }
 
 func (s *state) procElse() {
 	s.bufLine = "" // cancel fi
-	tok := s.Scan()
-	if tok == scanner.Ident && s.TokenText() == "if" {
-		s.Writeln("elif [ " + s.readExpression("bool").AsValue() + " -ne 0 ]; then")
+	if s.Scan() == scanner.Ident && s.TokenText() == "if" {
+		s.Writeln("elif [ " + s.readExpression("bool").AsValue() + " -ne 0 ]; then :")
 	} else {
 		s.Writeln("else")
 	}
@@ -734,7 +731,7 @@ func CompileFiles(sources []string) error {
 		}
 	}
 	if _, ok := s.funcs["main"]; ok {
-		s.Writeln("main")
+		s.Writeln("main $0 \"${@}\"")
 	}
 	return nil
 }

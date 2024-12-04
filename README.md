@@ -119,6 +119,28 @@ function FizzBuzz() {
 - [os.Getenv](https://pkg.go.dev/os#Getenv)
 - [os.Setenv](https://pkg.go.dev/os#Setenv)
 
+
+`GOTOSH_FUNC_` プレフィックスが付いた関数を定義することで、任意のパッケージの関数を実装することができます。 (以下は `strings.Index()` を実装する例。内部の実装用なので後で変わる可能性が高いです)
+
+```go
+// Implements strings.Index()
+func GOTOSH_FUNC_strings_Index(s, f string) int {
+	fl := len(f)
+	end := len(s) - fl + 1
+	for i := 0; i < end; i++ {
+		if s[i:i+fl] == f {
+			return i
+		}
+	}
+	return -1
+}
+
+func main() {
+	fmt.Println(strings.Index("hello, world", "ld")) // GOTOSH_strings_Index() will be invoked
+}
+```
+
+
 # 制限
 
 ## サポートしていないものがたくさんあります

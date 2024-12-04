@@ -32,7 +32,8 @@ func returnStringAndStatus() (string, bash.StatusCode) {
 // Same as bash.StatusCode
 type StatusCode = int8
 
-func GOTOSH_strings_Index(s, f string) int {
+// Implements strings.Index()
+func GOTOSH_FUNC_strings_Index(s, f string) int {
 	fl := len(f)
 	end := len(s) - fl + 1
 	for i := 0; i < end; i++ {
