@@ -1,6 +1,7 @@
 package bash
 
 import (
+	"io"
 	"os"
 	"os/exec"
 	"strings"
@@ -21,11 +22,11 @@ func Exec(name string, args ...string) (string, StatusCode) {
 	return strings.TrimSuffix(string(out), "\n"), 0
 }
 
-func Read() (string, StatusCode) {
+func ReadLine(r io.Reader) (string, StatusCode) {
 	line := make([]byte, 0, 100)
 	for {
 		b := make([]byte, 1)
-		n, err := os.Stdin.Read(b)
+		n, err := r.Read(b)
 		if n > 0 {
 			if b[0] == '\n' {
 				break
@@ -39,7 +40,12 @@ func Read() (string, StatusCode) {
 	return string(line), 0
 }
 
+func Read() (string, StatusCode) {
+	return ReadLine(os.Stdin)
+}
+
 func Export(s ...string) {
+	// do nothing in Go
 }
 
 func SubStr(s string, pos, len int) string {

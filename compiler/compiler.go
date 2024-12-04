@@ -107,7 +107,8 @@ func newState() *state {
 		"bash.Exit":       {exp: "exit"},
 		"bash.Export":     {exp: "export"},
 		"bash.Exec":       {retTypes: []string{"string", "StatusCode"}, stdout: true},
-		"bash.Read":       {exp: `read _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
+		"bash.Read":       {exp: `IFS= read -r -s _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
+		"bash.ReadLine":   {exp: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []string{"TempVarString", "StatusCode"}},
 		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"string"}},
 		"bash.UnixTimeMs": {exp: "date +%s000", retTypes: []string{"int"}, stdout: true},
 		// fmt
@@ -134,6 +135,8 @@ func newState() *state {
 		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}, stdout: true},
 		// os
 		"os.Args":     {exp: `"${@}"`, retTypes: []string{"[]string"}}, // variable
+		"os.Stdin":    {exp: "0", retTypes: []string{"io.Reader"}},     // variable
+		"os.Stdout":   {exp: "1", retTypes: []string{"io.Reader"}},     // variable
 		"os.Exit":     {exp: "exit"},
 		"os.Getwd":    {exp: "pwd", retTypes: []string{"string", "StatusCode"}, stdout: true},
 		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode"}, stdout: true},
@@ -150,9 +153,13 @@ func newState() *state {
 		"os.Setenv": {convFunc: func(arg []string) string {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
-		"exec.Command":     {exp: "echo -n ", retTypes: []string{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
-		"exec.Cmd__Output": {exp: "bash -c", retTypes: []string{"string", "StatusCode"}, stdout: true},
-		"reflect.TypeOf":   {retTypes: []string{"_string"}, convFunc: func(arg []string) string { return `"` + s.vars[varName(arg[0])] + `"` }},
+		"os.Open":                    {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))"<{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"TempVarString", "StatusCode"}},
+		"os.Create":                  {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))">{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"TempVarString", "StatusCode"}},
+		"exec.Command":               {exp: "echo -n ", retTypes: []string{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
+		"exec.Cmd__Output":           {exp: "bash -c", retTypes: []string{"string", "StatusCode"}, stdout: true},
+		"reflect.TypeOf":             {retTypes: []string{"_string"}, convFunc: func(arg []string) string { return `"` + s.vars[varName(arg[0])] + `"` }},
+		"TempVarString__Close":       {exp: `eval "exec {0}<&-;exec {0}>&-"`}, // TODO
+		"TempVarString__WriteString": {exp: `echo -n {1}>&{0}`},               // TODO
 		// TODO: cast
 		"int":             {retTypes: []string{"int"}},
 		"byte":            {retTypes: []string{"int"}},
