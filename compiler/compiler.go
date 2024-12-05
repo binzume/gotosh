@@ -602,6 +602,7 @@ func (s *state) procFunc() {
 	}
 
 	s.Writeln("function " + name + "() {")
+	s.cl = append(s.cl, "}")
 	for _, arg := range args {
 		if strings.HasPrefix(s.vars[arg], "[]") {
 			s.Writeln("local " + arg + `=("$@")`)
@@ -609,7 +610,6 @@ func (s *state) procFunc() {
 			s.Writeln("local " + arg + `="$1"; shift`)
 		}
 	}
-	s.cl = append(s.cl, "}")
 	f := shFunc{exp: name, retTypes: retTypes, stdout: len(retTypes) > 0 && retTypes[0] != "StatusCode" && retTypes[0] != "TempVarString"}
 	s.funcs[name] = f
 	if n, found := strings.CutPrefix(name, "GOTOSH_FUNC_"); found {
