@@ -156,6 +156,11 @@ func newState() *state {
 		}},
 		"os.Open":              {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))"<{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"*os.File", "StatusCode"}},
 		"os.Create":            {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))">{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"*os.File", "StatusCode"}},
+		"os.Mkdir":             {exp: "mkdir {0}", retTypes: []string{"StatusCode"}},
+		"os.MkdirAll":          {exp: "mkdir -p {0}", retTypes: []string{"StatusCode"}},
+		"os.Remove":            {exp: "rm -f", retTypes: []string{"StatusCode"}},
+		"os.RemoveAll":         {exp: "rm -rf", retTypes: []string{"StatusCode"}},
+		"os.Rename":            {exp: "mv", retTypes: []string{"StatusCode"}},
 		"exec.Command":         {exp: "echo -n ", retTypes: []string{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
 		"exec.Cmd__Output":     {exp: "bash -c", retTypes: []string{"string", "StatusCode"}, stdout: true},
 		"reflect.TypeOf":       {retTypes: []string{"_string"}, convFunc: func(arg []string) string { return `"` + s.vars[varName(arg[0])] + `"` }},
@@ -733,7 +738,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 
 func CompileFiles(sources []string) error {
 	s := newState()
-	s.Writeln("#!/bin/sh")
+	s.Writeln("#!/bin/bash")
 	s.Writeln("")
 
 	for _, srcPath := range sources {

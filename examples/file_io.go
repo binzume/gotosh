@@ -12,13 +12,14 @@ func printLine(n int, s string) {
 }
 
 func main() {
-	w, err := os.Create("file_test.txt")
+	fname := "file_test.txt"
+	w, err := os.Create(fname)
 	w.WriteString("This is a test file.\n")
 	w.WriteString("Hello,")
 	w.WriteString("world!\n")
 	w.Close()
 
-	r, err := os.Open("file_test.txt")
+	r, err := os.Open(fname)
 	if err != nil {
 		fmt.Println("Can't open file")
 		return
@@ -33,4 +34,8 @@ func main() {
 	}
 	r.Close()
 
+	os.Remove(fname)
+
+	os.MkdirAll("testdir/foo/bar", 0)
+	os.RemoveAll("testdir")
 }

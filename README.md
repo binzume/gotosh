@@ -107,8 +107,8 @@ function FizzBuzz() {
 - [strconv.Atoi](https://pkg.go.dev/strconv#Atoi)
 - [strconv.Itoa](https://pkg.go.dev/strconv#Itoa)
 - [os.Exit](https://pkg.go.dev/os#Exit)
-- [os.Getwd](https://pkg.go.dev/os#Getwd)
 - [os.Chdir](https://pkg.go.dev/os#Chdir)
+- [os.Getwd](https://pkg.go.dev/os#Getwd)
 - [os.Getpid](https://pkg.go.dev/os#Getpid)
 - [os.Getppid](https://pkg.go.dev/os#Getppid)
 - [os.Getuid](https://pkg.go.dev/os#Getuid)
@@ -118,6 +118,13 @@ function FizzBuzz() {
 - [os.Hostname](https://pkg.go.dev/os#Hostname)
 - [os.Getenv](https://pkg.go.dev/os#Getenv)
 - [os.Setenv](https://pkg.go.dev/os#Setenv)
+- [os.Open](https://pkg.go.dev/os#Open)
+- [os.Create](https://pkg.go.dev/os#Create)
+- [os.Mkdir](https://pkg.go.dev/os#Mkdir)
+- [os.MkdirAll](https://pkg.go.dev/os#MkdirAll)
+- [os.Remove](https://pkg.go.dev/os#Remove)
+- [os.RemoveAll](https://pkg.go.dev/os#RemoveAll)
+- [os.Rename](https://pkg.go.dev/os#Rename)
 
 
 `GOTOSH_FUNC_` プレフィックスが付いた関数を定義することで、任意のパッケージの関数を実装することができます。 (以下は `strings.Index()` を実装する例。内部の実装用なので後で変わる可能性が高いです)
