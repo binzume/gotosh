@@ -51,4 +51,10 @@ func main() {
 	strValue := strconv.Itoa(67890)
 
 	fmt.Println(intValue, strValue)
+
+	s = ""
+	for s != "....." {
+		s = s + "."
+	}
+	fmt.Println(s)
 }

@@ -59,6 +59,11 @@ func (a User) Hello() {
 }
 
 func main() {
+	//  args
+	for i := 1; i < bash.NArgs(); i++ {
+		fmt.Println("arg", i, bash.Arg(i))
+	}
+
 	// func call
 	testFunc(1, 2, "test")
 	var n = int(111 + 222*3)
