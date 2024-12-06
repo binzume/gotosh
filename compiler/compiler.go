@@ -112,14 +112,14 @@ func newState() *state {
 		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"string"}},
 		"bash.Arg":        {exp: `eval echo \\${{0}}`, retTypes: []string{"string"}, stdout: true},
 		"bash.NArgs":      {exp: `$(( $# + 1 ))`, retTypes: []string{"int"}},
-		"bash.UnixTimeMs": {exp: "date +%s000", retTypes: []string{"int"}, stdout: true},
+		"bash.UnixTimeMs": {exp: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []string{"int"}, stdout: true},
 		// fmt
 		"fmt.Print":   {exp: "echo -n"},
 		"fmt.Println": {exp: "echo"},
 		"fmt.Printf":  {exp: "printf"},
 		"fmt.Sprint":  {exp: "echo -n", retTypes: []string{"string"}, stdout: true},
 		"fmt.Sprintln": {retTypes: []string{"string"}, convFunc: func(arg []string) string {
-			return "`echo " + strings.Join(arg, " ") + "`$'\\n'"
+			return "$(echo " + strings.Join(arg, " ") + ")$'\\n'"
 		}},
 		"fmt.Sprintf": {exp: "printf", retTypes: []string{"string"}, stdout: true},
 		// strings
