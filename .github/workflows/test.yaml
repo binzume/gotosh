@@ -18,7 +18,7 @@ jobs:
         go-version: 1.23
     - name: Build
       run: go build -v .
-    - name: Test
+    - name: Test hello_world
       run: ./compare_output.sh hello_world
     - name: Test fizz_buzz
       run: ./compare_output.sh fizz_buzz
@@ -26,5 +26,7 @@ jobs:
       run: ./compare_output.sh string_sample
     - name: Test read_stdin
       run: ./compare_output.sh read_stdin
+    - name: Test file_io
+      run: ./compare_output.sh file_io
     - name: Test misc
       run: ./compare_output.sh misc
