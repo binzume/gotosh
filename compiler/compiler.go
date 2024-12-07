@@ -33,6 +33,7 @@ func escapeShellString(s string) string {
 
 type shExpression struct {
 	exp      string
+	typ      string
 	retVar   string
 	stdout   bool
 	retTypes []string
@@ -40,19 +41,21 @@ type shExpression struct {
 
 func (f *shExpression) AsValue() string {
 	exp := f.exp
-	if len(f.retTypes) > 0 && f.retTypes[0] == "StatusCode" {
-		// TODO: stdout...
-		exp = "`" + exp + " >&2; echo $?`"
-	} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
-		exp = "`" + exp + " >&2 && echo \"$_tmp0\"`"
-	} else if len(f.retTypes) > 0 && f.retTypes[0] == "_INT_EXP" {
+	if f.typ == "INT_EXP" {
 		exp = "$(( " + exp + " ))"
+	} else if f.typ == "STR_CMP" {
+		exp = "$([[ " + exp + " ]] && echo 1 || echo 0)"
+	} else if len(f.retTypes) > 0 && f.retTypes[0] == "StatusCode" {
+		// TODO: stdout...
+		exp = "$(" + exp + " >&2; echo $?)"
+	} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
+		exp = "$(" + exp + " >&2 && echo \"$_tmp0\")"
 	} else if f.stdout && len(f.retTypes) > 0 && strings.HasPrefix(f.retTypes[0], "[]") {
-		exp = "(`" + exp + "`)"
+		exp = "($(" + exp + "))"
 	} else if f.stdout && len(f.retTypes) > 0 && f.retTypes[0] == "int" {
-		exp = "`" + exp + "`"
+		exp = "$(" + exp + ")"
 	} else if f.stdout {
-		exp = "\"`" + exp + "`\""
+		exp = "\"$(" + exp + ")\""
 	}
 	return strings.TrimSpace(exp)
 }
@@ -174,8 +177,7 @@ func newState() *state {
 		"strconv.Itoa":    {retTypes: []string{"string"}},
 		"bash.StatusCode": {retTypes: []string{"int"}},
 		// slice
-		"len": {retTypes: []string{"int"},
-			convFunc: func(arg []string) string { return "${#" + s.maybeArraySuffix(varName(arg[0])) + "}" }},
+		"len": {retTypes: []string{"int"}, convFunc: func(arg []string) string { return "${#" + strings.Trim(trimQuote(arg[0]), "${}") + "}" }},
 		"append": {retTypes: []string{"_ARG1"},
 			convFunc: func(arg []string) string {
 				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
@@ -240,13 +242,6 @@ func (s *state) EndBlock() {
 	}
 }
 
-func (s *state) maybeArraySuffix(t string) string {
-	if strings.HasPrefix(s.vars[t], "[]") {
-		t += "[@]"
-	}
-	return t
-}
-
 func (s *state) parseImportPkg() {
 	if s.lastToken == scanner.Ident {
 		name := s.TokenText()
@@ -294,7 +289,7 @@ func (s *state) readType(scaned bool) string {
 		t += s.readType(false)
 	} else if s.lastToken == '[' {
 		t += s.TokenText()
-		s.readExpression("int") // ignore array size
+		s.readExpression("int", true) // ignore array size
 		t += s.TokenText()
 		t += s.readType(false)
 	}
@@ -313,7 +308,7 @@ func (s *state) readFuncCall(name string) *shExpression {
 	var args []string
 	if s.lastToken == '(' {
 		for s.lastToken != scanner.EOF && s.lastToken != ')' {
-			e := s.readExpression("")
+			e := s.readExpression("", true)
 			args = append(args, e.AsValue())
 			for i := range e.retTypes {
 				if i != 0 && RetVarName(e.retTypes, i) != "" {
@@ -357,7 +352,7 @@ func (s *state) readFuncCall(name string) *shExpression {
 	return &shExpression{exp: exp, retTypes: f.retTypes, retVar: retVar, stdout: f.stdout}
 }
 
-func (s *state) readExpression(typeHint string) *shExpression {
+func (s *state) readExpression(typeHint string, ignoreNewLine bool) *shExpression {
 	exp := ""
 	l := s.Line
 	s.Scan()
@@ -369,32 +364,34 @@ func (s *state) readExpression(typeHint string) *shExpression {
 		s.Scan() // {
 		exp += "("
 		for s.lastToken != scanner.EOF && s.lastToken != '}' {
-			exp += " " + s.readExpression(t[2:]).AsValue()
+			exp += " " + s.readExpression(t[2:], true).AsValue()
 		}
 		exp += ")"
 		return &shExpression{exp: exp, retTypes: []string{t}}
 	}
 	tokens := 0
-	nest := 0
 	var funcRet *shExpression
 	var singleVar = true
 	var isString = typeHint == "string"
-	for ; s.lastToken != scanner.EOF && (nest > 0 || s.Line == l); s.Scan() {
+	for ; s.lastToken != scanner.EOF && (ignoreNewLine || s.Line == l); s.Scan() {
 		tok := s.lastToken
-		if nest == 0 && tok == ')' || typeHint != "" && tok == ':' || tok == ',' || tok == ';' || tok == ']' || tok == '{' || tok == '}' {
+		if tok == ')' || typeHint != "" && tok == ':' || tok == ',' || tok == ';' || tok == ']' || tok == '{' || tok == '}' {
 			break
 		} else if tok == '(' {
-			nest++
-		} else if tok == ')' {
-			nest--
-		}
-		if isString && tok == '+' || tok == ':' {
+			funcRet = s.readExpression("", true)
+			if !isString && funcRet.typ == "INT_EXP" {
+				exp += "(" + funcRet.exp + ")"
+			} else {
+				exp += funcRet.AsValue()
+			}
+			continue
+		} else if isString && tok == '+' || tok == ':' {
 			continue
 		}
 		singleVar = singleVar && tok == scanner.Ident
 		isString = isString || tok == scanner.String
 		t := s.TokenText()
-		if isString && (t == "=" || t == "!") && s.Peek() == '=' {
+		if (t == "=" || t == "!") && s.Peek() == '=' {
 			s.Scan()
 			t = " " + t + "= "
 			typeHint = "bool"
@@ -408,7 +405,9 @@ func (s *state) readExpression(typeHint string) *shExpression {
 				isString = true
 			}
 			ot := t
-			t = s.maybeArraySuffix(t)
+			if strings.HasPrefix(s.vars[t], "[]") {
+				t += "[@]"
+			}
 			if t == "true" {
 				singleVar = false
 				t = "1"
@@ -419,7 +418,7 @@ func (s *state) readExpression(typeHint string) *shExpression {
 				s.Scan()
 				var idx []*shExpression
 				for s.lastToken != scanner.EOF && s.lastToken != ']' {
-					idx = append(idx, s.readExpression("int"))
+					idx = append(idx, s.readExpression("int", true))
 				}
 				if len(idx) == 1 {
 					t = ot + "[" + idx[0].AsValue() + "]"
@@ -456,12 +455,13 @@ func (s *state) readExpression(typeHint string) *shExpression {
 	}
 	e := &shExpression{exp: exp}
 	if isString && typeHint == "bool" {
-		e.exp = "[ ! " + exp + " ]"
-		e.retTypes = []string{"StatusCode"}
+		e.typ = "STR_CMP"
+		e.retTypes = []string{typeHint}
 	} else if tokens > 1 && !isString {
-		e.retTypes = []string{"_INT_EXP"}
+		e.typ = "INT_EXP"
+		e.retTypes = []string{"int"}
 	} else if typeHint != "" {
-		e.retTypes = []string{"typeHint"}
+		e.retTypes = []string{typeHint}
 	} else if isString {
 		e.retTypes = []string{"string"}
 	}
@@ -476,7 +476,7 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 		typ = s.readType(false)
 		names = append(names, name)
 	}
-	e := s.readExpression(s.vars[names[0]])
+	e := s.readExpression(s.vars[names[0]], false)
 	v := e.AsValue()
 	primaryIndex := -1
 	statusIndex := -1
@@ -541,7 +541,7 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 func (s *state) procReturn() {
 	var status *shExpression
 	for i, t := range s.funcs[s.funcName].retTypes {
-		e := s.readExpression("")
+		e := s.readExpression("", false)
 		if t == "StatusCode" {
 			status = e
 		} else if RetVarName(s.funcs[s.funcName].retTypes, i) != "" {
@@ -622,7 +622,7 @@ func (s *state) procFor() {
 
 	n := 0
 	for ; s.lastToken != scanner.EOF && s.lastToken != '{' && n < 3; n++ {
-		f[n] = s.readExpression("")
+		f[n] = s.readExpression("", true)
 	}
 
 	if s.useExFor {
@@ -649,14 +649,14 @@ func (s *state) procFor() {
 }
 
 func (s *state) procIf() {
-	s.Writeln("if [ " + s.readExpression("bool").AsValue() + " -ne 0 ]; then :")
+	s.Writeln("if [ " + s.readExpression("bool", true).AsValue() + " -ne 0 ]; then :")
 	s.cl = append(s.cl, "fi")
 }
 
 func (s *state) procElse() {
 	s.bufLine = "" // cancel fi
 	if s.Scan() == scanner.Ident && s.TokenText() == "if" {
-		s.Writeln("elif [ " + s.readExpression("bool").AsValue() + " -ne 0 ]; then :")
+		s.Writeln("elif [ " + s.readExpression("bool", true).AsValue() + " -ne 0 ]; then :")
 	} else {
 		s.Writeln("else")
 	}
@@ -704,7 +704,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "import":
 				s.parseImport()
 			case "type":
-				s.Writeln("## type ", s.readExpression("").AsExec()) // TODO
+				s.Writeln("## type ", s.readExpression("", false).AsExec()) // TODO
 			case "for":
 				s.procFor()
 			case "if":
@@ -724,7 +724,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "const":
 				s.procAssign(nil, true, true)
 			case "go":
-				s.Writeln(s.readExpression("").AsExec() + " &")
+				s.Writeln(s.readExpression("", false).AsExec() + " &")
 			default:
 				s.procSentense(t)
 			}
