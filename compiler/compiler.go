@@ -50,9 +50,7 @@ func (f *shExpression) AsValue() string {
 		exp = "$(" + exp + " >&2; echo $?)"
 	} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
 		exp = "$(" + exp + " >&2 && echo \"$_tmp0\")"
-	} else if f.stdout && len(f.retTypes) > 0 && strings.HasPrefix(f.retTypes[0], "[]") {
-		exp = "($(" + exp + "))"
-	} else if f.stdout && len(f.retTypes) > 0 && f.retTypes[0] == "int" {
+	} else if f.stdout && len(f.retTypes) > 0 && (f.retTypes[0] == "int" || strings.HasPrefix(f.retTypes[0], "[]")) {
 		exp = "$(" + exp + ")"
 	} else if f.stdout {
 		exp = "\"$(" + exp + ")\""
@@ -133,9 +131,9 @@ func newState() *state {
 		"strings.TrimPrefix": {exp: "\"${{*0}#{1}}\"", retTypes: []string{"string"}},
 		"strings.TrimSuffix": {exp: "\"${{*0}%{1}}\"", retTypes: []string{"string"}},
 		"strings.Split": {retTypes: []string{"[]string"}, stdout: true, convFunc: func(arg []string) string {
-			return "(`IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\" `)"
+			return "IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\""
 		}},
-		"strings.Join":     {exp: "(IFS={1}; echo \"${{*0}[*]}\")", retTypes: []string{"string"}, stdout: true},
+		"strings.Join":     {exp: "IFS={1}; echo \"${{*0}[*]}\"", retTypes: []string{"string"}, stdout: true},
 		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []string{"bool"}, stdout: true},
 		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}, stdout: true},
 		// os
@@ -249,8 +247,7 @@ func (s *state) parseImportPkg() {
 		s.imports[name] = trimQuote(s.TokenText())
 	} else {
 		pkg := trimQuote(s.TokenText())
-		name := path.Base(pkg)
-		s.imports[name] = pkg
+		s.imports[path.Base(pkg)] = pkg
 	}
 }
 
@@ -306,7 +303,17 @@ func (s *state) readFuncCall(name string) *shExpression {
 	}
 
 	var args []string
+
 	if s.lastToken == '(' {
+		if ns != "" {
+			if s.vars[ns] != "" {
+				name = strings.TrimPrefix(s.vars[ns], "*") + "__" + name
+				args = append(args, `"`+varValue(ns)+`"`)
+			} else {
+				pkg := s.imports[ns]
+				name = path.Base(pkg) + "." + name
+			}
+		}
 		for s.lastToken != scanner.EOF && s.lastToken != ')' {
 			e := s.readExpression("", true)
 			args = append(args, e.AsValue())
@@ -318,16 +325,6 @@ func (s *state) readFuncCall(name string) *shExpression {
 		}
 	} else {
 		s.skipNextScan = true
-	}
-
-	if ns != "" {
-		if s.vars[ns] != "" {
-			name = strings.TrimPrefix(s.vars[ns], "*") + "__" + name
-			args = append([]string{`"` + varValue(ns) + `"`}, args...)
-		} else {
-			pkg := s.imports[ns]
-			name = path.Base(pkg) + "." + name
-		}
 	}
 
 	exp := name
@@ -362,11 +359,9 @@ func (s *state) readExpression(typeHint string, ignoreNewLine bool) *shExpressio
 	if s.lastToken == '[' {
 		t := s.readType(true)
 		s.Scan() // {
-		exp += "("
 		for s.lastToken != scanner.EOF && s.lastToken != '}' {
 			exp += " " + s.readExpression(t[2:], true).AsValue()
 		}
-		exp += ")"
 		return &shExpression{exp: exp, retTypes: []string{t}}
 	}
 	tokens := 0
@@ -476,7 +471,7 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 		typ = s.readType(false)
 		names = append(names, name)
 	}
-	e := s.readExpression(s.vars[names[0]], false)
+	e := s.readExpression(typ, false)
 	v := e.AsValue()
 	primaryIndex := -1
 	statusIndex := -1
@@ -500,8 +495,8 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 			s.vars[name] = "string"
 		}
 	}
-	if v == "" && strings.HasPrefix(s.vars[names[0]], "[]") {
-		v = "()"
+	if strings.HasPrefix(s.vars[names[0]], "[]") {
+		v = "(" + v + ")"
 	}
 	writeAssign := func(i int) {
 		local := decrare && s.funcName != ""
@@ -514,7 +509,7 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 		vn := RetVarName(e.retTypes, i)
 		if i == primaryIndex && v != "" {
 			if local && statusIndex >= 0 {
-				s.Writeln(names[i]) // to avoid local modify status code
+				s.Writeln(names[i]) // to avoid 'local' modify status code
 			}
 			s.Writeln(names[i] + "=" + v)
 		} else if vn != "" && names[i] != e.retVar && names[i] != "_" {
