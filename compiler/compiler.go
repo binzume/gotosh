@@ -31,12 +31,22 @@ func escapeShellString(s string) string {
 	return strings.ReplaceAll(s, "$", "\\$")
 }
 
+type Type string
+
+func (t Type) IsArray() bool {
+	return strings.HasPrefix(string(t), "[]")
+}
+
+func (t Type) MemberName(name string) string {
+	return strings.TrimPrefix(string(t), "*") + "__" + name
+}
+
 type shExpression struct {
 	exp      string
 	typ      string
 	retVar   string
 	stdout   bool
-	retTypes []string
+	retTypes []Type
 }
 
 func (f *shExpression) AsValue() string {
@@ -50,7 +60,7 @@ func (f *shExpression) AsValue() string {
 		exp = "$(" + exp + " >&2; echo $?)"
 	} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
 		exp = "$(" + exp + " >&2 && echo \"$_tmp0\")"
-	} else if f.stdout && len(f.retTypes) > 0 && (f.retTypes[0] == "int" || strings.HasPrefix(f.retTypes[0], "[]")) {
+	} else if f.stdout && len(f.retTypes) > 0 && (f.retTypes[0] == "int" || f.retTypes[0].IsArray()) {
 		exp = "$(" + exp + ")"
 	} else if f.stdout {
 		exp = "\"$(" + exp + ")\""
@@ -58,7 +68,7 @@ func (f *shExpression) AsValue() string {
 	return strings.TrimSpace(exp)
 }
 
-func RetVarName(retTypes []string, i int) string {
+func RetVarName(retTypes []Type, i int) string {
 	if len(retTypes) > i {
 		if retTypes[i] == "StatusCode" {
 			return "?"
@@ -79,7 +89,7 @@ func (f *shExpression) AsExec() string {
 type shFunc struct {
 	exp      string
 	stdout   bool
-	retTypes []string
+	retTypes []Type
 	convFunc func(arg []string) string
 }
 
@@ -87,7 +97,7 @@ type state struct {
 	scanner.Scanner
 	imports      map[string]string
 	funcs        map[string]shFunc
-	vars         map[string]string
+	vars         map[string]Type
 	cl           []string
 	useExFor     bool
 	lastToken    rune
@@ -102,81 +112,81 @@ func newState() *state {
 	var s state
 	s.w = os.Stdout
 	s.imports = map[string]string{}
-	s.vars = map[string]string{}
+	s.vars = map[string]Type{}
 	s.funcs = map[string]shFunc{
 		"bash.Sleep":      {exp: "sleep"},
 		"bash.Exit":       {exp: "exit"},
 		"bash.Export":     {exp: "export"},
-		"bash.Exec":       {retTypes: []string{"string", "StatusCode"}, stdout: true},
-		"bash.Read":       {exp: `IFS= read -r -s _tmp0`, retTypes: []string{"TempVarString", "StatusCode"}},
-		"bash.ReadLine":   {exp: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []string{"TempVarString", "StatusCode"}},
-		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []string{"string"}},
-		"bash.Arg":        {exp: `eval echo \\${{0}}`, retTypes: []string{"string"}, stdout: true},
-		"bash.NArgs":      {exp: `$(( $# + 1 ))`, retTypes: []string{"int"}},
-		"bash.UnixTimeMs": {exp: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []string{"int"}, stdout: true},
+		"bash.Exec":       {retTypes: []Type{"string", "StatusCode"}, stdout: true},
+		"bash.Read":       {exp: `IFS= read -r -s _tmp0`, retTypes: []Type{"TempVarString", "StatusCode"}},
+		"bash.ReadLine":   {exp: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []Type{"TempVarString", "StatusCode"}},
+		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []Type{"string"}},
+		"bash.Arg":        {exp: `eval echo \\${{0}}`, retTypes: []Type{"string"}, stdout: true},
+		"bash.NArgs":      {exp: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
+		"bash.UnixTimeMs": {exp: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []Type{"int"}, stdout: true},
 		// fmt
 		"fmt.Print":   {exp: "echo -n"},
 		"fmt.Println": {exp: "echo"},
 		"fmt.Printf":  {exp: "printf"},
-		"fmt.Sprint":  {exp: "echo -n", retTypes: []string{"string"}, stdout: true},
-		"fmt.Sprintln": {retTypes: []string{"string"}, convFunc: func(arg []string) string {
+		"fmt.Sprint":  {exp: "echo -n", retTypes: []Type{"string"}, stdout: true},
+		"fmt.Sprintln": {retTypes: []Type{"string"}, convFunc: func(arg []string) string {
 			return "$(echo " + strings.Join(arg, " ") + ")$'\\n'"
 		}},
-		"fmt.Sprintf": {exp: "printf", retTypes: []string{"string"}, stdout: true},
+		"fmt.Sprintf": {exp: "printf", retTypes: []Type{"string"}, stdout: true},
 		// strings
-		"strings.ReplaceAll": {exp: "\"${{*0}//{1}/{2}}\"", retTypes: []string{"string"}},
-		"strings.ToUpper":    {exp: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []string{"string"}, stdout: true},
-		"strings.ToLower":    {exp: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []string{"string"}, stdout: true},
-		"strings.TrimSpace":  {exp: "echo {0}| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []string{"string"}, stdout: true},
-		"strings.TrimPrefix": {exp: "\"${{*0}#{1}}\"", retTypes: []string{"string"}},
-		"strings.TrimSuffix": {exp: "\"${{*0}%{1}}\"", retTypes: []string{"string"}},
-		"strings.Split": {retTypes: []string{"[]string"}, stdout: true, convFunc: func(arg []string) string {
+		"strings.ReplaceAll": {exp: "\"${{*0}//{1}/{2}}\"", retTypes: []Type{"string"}},
+		"strings.ToUpper":    {exp: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []Type{"string"}, stdout: true},
+		"strings.ToLower":    {exp: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []Type{"string"}, stdout: true},
+		"strings.TrimSpace":  {exp: "echo {0}| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []Type{"string"}, stdout: true},
+		"strings.TrimPrefix": {exp: "\"${{*0}#{1}}\"", retTypes: []Type{"string"}},
+		"strings.TrimSuffix": {exp: "\"${{*0}%{1}}\"", retTypes: []Type{"string"}},
+		"strings.Split": {retTypes: []Type{"[]string"}, stdout: true, convFunc: func(arg []string) string {
 			return "IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\""
 		}},
-		"strings.Join":     {exp: "IFS={1}; echo \"${{*0}[*]}\"", retTypes: []string{"string"}, stdout: true},
-		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []string{"bool"}, stdout: true},
-		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []string{"int"}, stdout: true},
+		"strings.Join":     {exp: "IFS={1}; echo \"${{*0}[*]}\"", retTypes: []Type{"string"}, stdout: true},
+		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true},
+		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []Type{"int"}, stdout: true},
 		// os
-		"os.Stdin":    {exp: "0", retTypes: []string{"io.Reader"}}, // variable
-		"os.Stdout":   {exp: "1", retTypes: []string{"io.Reader"}}, // variable
+		"os.Stdin":    {exp: "0", retTypes: []Type{"io.Reader"}}, // variable
+		"os.Stdout":   {exp: "1", retTypes: []Type{"io.Reader"}}, // variable
 		"os.Exit":     {exp: "exit"},
-		"os.Getwd":    {exp: "pwd", retTypes: []string{"string", "StatusCode"}, stdout: true},
-		"os.Chdir":    {exp: "cd", retTypes: []string{"StatusCode"}, stdout: true},
+		"os.Getwd":    {exp: "pwd", retTypes: []Type{"string", "StatusCode"}, stdout: true},
+		"os.Chdir":    {exp: "cd", retTypes: []Type{"StatusCode"}, stdout: true},
 		"os.Getpid":   {exp: "$$"},
 		"os.Getppid":  {exp: "$PPID"},
 		"os.Getuid":   {exp: "${UID:--1}"},
 		"os.Geteuid":  {exp: "${EUID:-${UID:--1}}"},
 		"os.Getgid":   {exp: "${GID:--1}"},
 		"os.Getegid":  {exp: "${EGID:-${GID:--1}}"},
-		"os.Hostname": {exp: "hostname", retTypes: []string{"string", "StatusCode"}, stdout: true},
+		"os.Hostname": {exp: "hostname", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"os.Getenv": {convFunc: func(arg []string) string {
 			return "\"${" + trimQuote(arg[0]) + "}\""
 		}},
 		"os.Setenv": {convFunc: func(arg []string) string {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
-		"os.Open":              {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))"<{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"*os.File", "StatusCode"}},
-		"os.Create":            {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))">{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []string{"*os.File", "StatusCode"}},
-		"os.Mkdir":             {exp: "mkdir {0}", retTypes: []string{"StatusCode"}},
-		"os.MkdirAll":          {exp: "mkdir -p {0}", retTypes: []string{"StatusCode"}},
-		"os.Remove":            {exp: "rm -f", retTypes: []string{"StatusCode"}},
-		"os.RemoveAll":         {exp: "rm -rf", retTypes: []string{"StatusCode"}},
-		"os.Rename":            {exp: "mv", retTypes: []string{"StatusCode"}},
-		"exec.Command":         {exp: "echo -n ", retTypes: []string{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
-		"exec.Cmd__Output":     {exp: "bash -c", retTypes: []string{"string", "StatusCode"}, stdout: true},
-		"reflect.TypeOf":       {retTypes: []string{"_string"}, convFunc: func(arg []string) string { return `"` + s.vars[varName(arg[0])] + `"` }},
+		"os.Open":              {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))"<{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []Type{"*os.File", "StatusCode"}},
+		"os.Create":            {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))">{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []Type{"*os.File", "StatusCode"}},
+		"os.Mkdir":             {exp: "mkdir {0}", retTypes: []Type{"StatusCode"}},
+		"os.MkdirAll":          {exp: "mkdir -p {0}", retTypes: []Type{"StatusCode"}},
+		"os.Remove":            {exp: "rm -f", retTypes: []Type{"StatusCode"}},
+		"os.RemoveAll":         {exp: "rm -rf", retTypes: []Type{"StatusCode"}},
+		"os.Rename":            {exp: "mv", retTypes: []Type{"StatusCode"}},
+		"exec.Command":         {exp: "echo -n ", retTypes: []Type{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
+		"exec.Cmd__Output":     {exp: "bash -c", retTypes: []Type{"string", "StatusCode"}, stdout: true},
+		"reflect.TypeOf":       {retTypes: []Type{"_string"}, convFunc: func(arg []string) string { return `"` + string(s.vars[varName(arg[0])]) + `"` }},
 		"os.File__Close":       {exp: `eval "exec {0}<&-;exec {0}>&-"`}, // TODO
 		"os.File__WriteString": {exp: `echo -n {1}>&{0}`},               // TODO
 		// TODO: cast
-		"int":             {retTypes: []string{"int"}},
-		"byte":            {retTypes: []string{"int"}},
-		"string":          {retTypes: []string{"string"}},
-		"strconv.Atoi":    {retTypes: []string{"int", "StatusCode"}},
-		"strconv.Itoa":    {retTypes: []string{"string"}},
-		"bash.StatusCode": {retTypes: []string{"int"}},
+		"int":             {retTypes: []Type{"int"}},
+		"byte":            {retTypes: []Type{"int"}},
+		"string":          {retTypes: []Type{"string"}},
+		"strconv.Atoi":    {retTypes: []Type{"int", "StatusCode"}},
+		"strconv.Itoa":    {retTypes: []Type{"string"}},
+		"bash.StatusCode": {retTypes: []Type{"int"}},
 		// slice
-		"len": {retTypes: []string{"int"}, convFunc: func(arg []string) string { return "${#" + strings.Trim(trimQuote(arg[0]), "${}") + "}" }},
-		"append": {retTypes: []string{"_ARG1"},
+		"len": {retTypes: []Type{"int"}, convFunc: func(arg []string) string { return "${#" + strings.Trim(trimQuote(arg[0]), "${}") + "}" }},
+		"append": {retTypes: []Type{"_ARG1"},
 			convFunc: func(arg []string) string {
 				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
 			}},
@@ -209,10 +219,10 @@ func (s *state) FlushLine() {
 	}
 }
 
-func (s *state) Write(str ...any) {
+func (s *state) WriteString(str string) {
 	s.FlushLine()
 	s.Indent()
-	fmt.Fprint(s.w, str...)
+	fmt.Fprint(s.w, str)
 	s.middleofline = true
 }
 
@@ -262,7 +272,7 @@ func (s *state) parseImport() {
 	}
 }
 
-func (s *state) readType(scaned bool) string {
+func (s *state) readType(scaned bool) Type {
 	if !scaned {
 		s.Scan()
 	}
@@ -272,8 +282,14 @@ func (s *state) readType(scaned bool) string {
 		if t == "map" {
 			s.Scan() // [
 			t += s.TokenText()
-			t += s.readType(false)
+			t += string(s.readType(false))
 			s.Scan() // ]
+			t += s.TokenText()
+		} else if t == "struct" {
+			s.Scan() // {
+			for ; s.lastToken != '}' && s.lastToken != scanner.EOF; s.Scan() {
+				t += s.TokenText() + ":" // TODO
+			}
 			t += s.TokenText()
 		} else if _, ok := s.imports[t]; ok {
 			s.Scan() // .
@@ -283,48 +299,44 @@ func (s *state) readType(scaned bool) string {
 		}
 	} else if s.lastToken == '*' {
 		t += s.TokenText()
-		t += s.readType(false)
+		t += string(s.readType(false))
 	} else if s.lastToken == '[' {
 		t += s.TokenText()
 		s.readExpression("int", true) // ignore array size
 		t += s.TokenText()
-		t += s.readType(false)
+		t += string(s.readType(false))
 	}
-	return strings.TrimPrefix(t, "bash.")
+	return Type(strings.TrimPrefix(t, "bash."))
+}
+
+func (s *state) readName() string {
+	name := ""
+	for tok := s.lastToken; tok == '.' || tok == scanner.Ident; tok = s.Scan() {
+		name += s.TokenText()
+	}
+	return name
 }
 
 func (s *state) readFuncCall(name string) *shExpression {
-	ns := ""
-	if s.lastToken == '.' {
-		ns = name
-		s.Scan()
-		name = s.TokenText()
-		s.Scan() // (
-	}
-
 	var args []string
-
-	if s.lastToken == '(' {
-		if ns != "" {
-			if s.vars[ns] != "" {
-				name = strings.TrimPrefix(s.vars[ns], "*") + "__" + name
-				args = append(args, `"`+varValue(ns)+`"`)
-			} else {
-				pkg := s.imports[ns]
-				name = path.Base(pkg) + "." + name
+	if p := strings.LastIndex(name, "."); p >= 0 {
+		ns := name[:p]
+		name = name[p+1:]
+		if s.vars[ns] != "" {
+			name = s.vars[ns].MemberName(name)
+			args = append(args, `"`+varValue(strings.ReplaceAll(ns, ".", "__"))+`"`)
+		} else if s.imports[ns] != "" {
+			name = path.Base(s.imports[ns]) + "." + name
+		}
+	}
+	for s.lastToken != scanner.EOF && s.lastToken != ')' {
+		e := s.readExpression("", true)
+		args = append(args, e.AsValue())
+		for i := range e.retTypes {
+			if i != 0 && RetVarName(e.retTypes, i) != "" {
+				args = append(args, `"`+varValue(RetVarName(e.retTypes, i))+`"`)
 			}
 		}
-		for s.lastToken != scanner.EOF && s.lastToken != ')' {
-			e := s.readExpression("", true)
-			args = append(args, e.AsValue())
-			for i := range e.retTypes {
-				if i != 0 && RetVarName(e.retTypes, i) != "" {
-					args = append(args, `"`+varValue(RetVarName(e.retTypes, i))+`"`)
-				}
-			}
-		}
-	} else {
-		s.skipNextScan = true
 	}
 
 	exp := name
@@ -349,7 +361,7 @@ func (s *state) readFuncCall(name string) *shExpression {
 	return &shExpression{exp: exp, retTypes: f.retTypes, retVar: retVar, stdout: f.stdout}
 }
 
-func (s *state) readExpression(typeHint string, ignoreNewLine bool) *shExpression {
+func (s *state) readExpression(typeHint Type, ignoreNewLine bool) *shExpression {
 	exp := ""
 	l := s.Line
 	s.Scan()
@@ -362,7 +374,7 @@ func (s *state) readExpression(typeHint string, ignoreNewLine bool) *shExpressio
 		for s.lastToken != scanner.EOF && s.lastToken != '}' {
 			exp += " " + s.readExpression(t[2:], true).AsValue()
 		}
-		return &shExpression{exp: exp, retTypes: []string{t}}
+		return &shExpression{exp: exp, retTypes: []Type{t}}
 	}
 	tokens := 0
 	var funcRet *shExpression
@@ -395,12 +407,16 @@ func (s *state) readExpression(typeHint string, ignoreNewLine bool) *shExpressio
 		if tok == scanner.String {
 			t = escapeShellString(t)
 		}
+		l = s.Line
 		if tok == scanner.Ident {
-			if s.vars[t] == "string" {
-				isString = true
+			t = s.readName()
+			if s.lastToken != '(' && s.lastToken != '[' {
+				s.skipNextScan = true
 			}
+			isString = isString || s.vars[t] == "string"
 			ot := t
-			if strings.HasPrefix(s.vars[t], "[]") {
+			t = strings.ReplaceAll(t, ".", "__")
+			if s.vars[ot].IsArray() {
 				t += "[@]"
 			}
 			if t == "true" {
@@ -409,8 +425,7 @@ func (s *state) readExpression(typeHint string, ignoreNewLine bool) *shExpressio
 			} else if t == "false" || t == "nil" {
 				singleVar = false
 				t = "0"
-			} else if s.Peek() == '[' {
-				s.Scan()
+			} else if s.lastToken == '[' {
 				var idx []*shExpression
 				for s.lastToken != scanner.EOF && s.lastToken != ']' {
 					idx = append(idx, s.readExpression("int", true))
@@ -421,27 +436,22 @@ func (s *state) readExpression(typeHint string, ignoreNewLine bool) *shExpressio
 					t += ":" + idx[0].AsValue() + ":$(( " + idx[1].AsValue() + " - " + idx[0].AsValue() + " ))"
 				}
 			}
-		}
-		if tok == scanner.Ident && (s.Peek() == '(' || s.Peek() == '.') {
-			s.Scan()
-			funcRet = s.readFuncCall(t)
-			exp += funcRet.AsValue()
-			singleVar = false
-			if len(funcRet.retTypes) > 0 && funcRet.retTypes[0] == "string" {
-				isString = true
+			if s.lastToken == '(' || s.funcs[ot].exp != "" {
+				funcRet = s.readFuncCall(ot)
+				t = funcRet.AsValue()
+				singleVar = false
+				if len(funcRet.retTypes) > 0 && funcRet.retTypes[0] == "string" {
+					isString = true
+				}
+				l = s.Line
+			} else if isString {
+				t = "\"" + varValue(t) + "\""
 			}
-		} else if tok == scanner.Ident && isString {
-			exp += "\"" + varValue(t) + "\""
-		} else {
-			exp += t
 		}
-		if exp == "[]" {
-			s.readType(false)
-		}
-		l = s.Line
+		exp += t
 		tokens++
 	}
-	s.skipNextScan = s.Line != l
+	s.skipNextScan = s.skipNextScan || s.Line != l
 	if funcRet != nil && exp == funcRet.AsValue() {
 		return funcRet
 	}
@@ -451,20 +461,20 @@ func (s *state) readExpression(typeHint string, ignoreNewLine bool) *shExpressio
 	e := &shExpression{exp: exp}
 	if isString && typeHint == "bool" {
 		e.typ = "STR_CMP"
-		e.retTypes = []string{typeHint}
+		e.retTypes = []Type{typeHint}
 	} else if tokens > 1 && !isString {
 		e.typ = "INT_EXP"
-		e.retTypes = []string{"int"}
+		e.retTypes = []Type{"int"}
 	} else if typeHint != "" {
-		e.retTypes = []string{typeHint}
+		e.retTypes = []Type{typeHint}
 	} else if isString {
-		e.retTypes = []string{"string"}
+		e.retTypes = []Type{"string"}
 	}
 	return e
 }
 
 func (s *state) procAssign(names []string, decrare, readonly bool) {
-	typ := ""
+	var typ Type
 	if len(names) == 0 {
 		s.Scan()
 		name := s.TokenText()
@@ -495,27 +505,28 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 			s.vars[name] = "string"
 		}
 	}
-	if strings.HasPrefix(s.vars[names[0]], "[]") {
+	if s.vars[names[0]].IsArray() {
 		v = "(" + v + ")"
 	}
 	writeAssign := func(i int) {
 		local := decrare && s.funcName != ""
-		if local && names[i] != "_" {
-			s.Write("local ")
+		name := strings.ReplaceAll(names[i], ".", "__")
+		vn := RetVarName(e.retTypes, i)
+		if local && name != "_" {
+			s.WriteString("local ")
 			if readonly {
-				s.Write("-r ")
+				s.WriteString("-r ")
 			}
 		}
-		vn := RetVarName(e.retTypes, i)
 		if i == primaryIndex && v != "" {
 			if local && statusIndex >= 0 {
-				s.Writeln(names[i]) // to avoid 'local' modify status code
+				s.Writeln(name) // to avoid 'local' modify status code
 			}
-			s.Writeln(names[i] + "=" + v)
-		} else if vn != "" && names[i] != e.retVar && names[i] != "_" {
-			s.Writeln(names[i] + "=\"$" + vn + "\"")
-		} else if local && names[i] != "_" {
-			s.Writeln(names[i])
+			s.Writeln(strings.ReplaceAll(name, ".", "__") + "=" + v)
+		} else if vn != "" && name != e.retVar && name != "_" {
+			s.Writeln(name + "=\"$" + vn + "\"")
+		} else if local && name != "_" {
+			s.Writeln(name)
 		}
 	}
 	if primaryIndex >= 0 {
@@ -540,9 +551,9 @@ func (s *state) procReturn() {
 		if t == "StatusCode" {
 			status = e
 		} else if RetVarName(s.funcs[s.funcName].retTypes, i) != "" {
-			s.Write(RetVarName(s.funcs[s.funcName].retTypes, i) + "=" + e.AsValue() + ";")
+			s.WriteString(RetVarName(s.funcs[s.funcName].retTypes, i) + "=" + e.AsValue() + ";")
 		} else {
-			s.Write("echo " + e.AsValue() + ";")
+			s.WriteString("echo " + e.AsValue() + ";")
 		}
 		if s.lastToken != ',' {
 			break
@@ -557,20 +568,19 @@ func (s *state) procReturn() {
 
 func (s *state) procFunc() {
 	var args []string
-	var argTypes []string
+	var argTypes []Type
 	tok := s.Scan()
-	prefix := ""
+	name := s.TokenText()
 	if tok == '(' {
 		s.Scan()
 		args = append(args, s.TokenText())
-		t := strings.TrimPrefix(s.readType(false), "*")
-		s.vars[args[len(argTypes)]] = t
-		argTypes = append(argTypes, t)
-		s.Scan()
-		prefix = t + "__"
-		s.Scan()
+		t := s.readType(false)
+		s.vars[args[len(argTypes)]] = Type(t)
+		argTypes = append(argTypes, Type(t))
+		s.Scan() // .
+		s.Scan() // name
+		name = t.MemberName(s.TokenText())
 	}
-	name := prefix + s.TokenText()
 	s.funcName = name
 	for tok = s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
 		if tok == '(' || tok == ',' {
@@ -588,7 +598,7 @@ func (s *state) procFunc() {
 		}
 	}
 	s.Scan() // '(' or '{' or Ident
-	var retTypes []string
+	var retTypes []Type
 	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
 		retTypes = append(retTypes, s.readType(s.lastToken != '(' && s.lastToken != ','))
 		s.Scan() // , or ')' or '{'
@@ -599,7 +609,7 @@ func (s *state) procFunc() {
 	s.Writeln("function " + name + "() {")
 	s.cl = append(s.cl, "}")
 	for _, arg := range args {
-		if strings.HasPrefix(s.vars[arg], "[]") {
+		if s.vars[arg].IsArray() {
 			s.Writeln("local " + arg + `=("$@")`)
 		} else {
 			s.Writeln("local " + arg + `="$1"; shift`)
@@ -658,21 +668,20 @@ func (s *state) procElse() {
 	s.cl = append(s.cl, "fi")
 }
 
-func (s *state) procSentense(t string) {
-	tok := s.Scan()
-	names := []string{t}
-	for tok == ',' {
+func (s *state) procSentense() {
+	names := []string{s.readName()}
+	for s.lastToken == ',' {
 		s.Scan()
-		names = append(names, s.TokenText())
-		tok = s.Scan()
+		names = append(names, s.readName())
 	}
+	tok := s.lastToken
 	if tok == ':' {
 		s.Scan() // =
 		s.procAssign(names, true, false)
 	} else if tok == '=' {
 		s.procAssign(names, false, false)
-	} else if tok == '(' || tok == '.' {
-		s.Writeln(s.readFuncCall(t).AsExec())
+	} else if tok == '(' {
+		s.Writeln(s.readFuncCall(names[0]).AsExec())
 	} else {
 		fmt.Printf("# Unknown token %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
 	}
@@ -699,7 +708,10 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "import":
 				s.parseImport()
 			case "type":
-				s.Writeln("## type ", s.readExpression("", false).AsExec()) // TODO
+				s.Scan()
+				name := s.TokenText()
+				s.Scan()
+				s.Writeln("## type ", name, s.readType(s.lastToken != '=')) // TODO
 			case "for":
 				s.procFor()
 			case "if":
@@ -721,7 +733,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "go":
 				s.Writeln(s.readExpression("", false).AsExec() + " &")
 			default:
-				s.procSentense(t)
+				s.procSentense()
 			}
 		} else {
 			fmt.Printf("# Unknown token %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
