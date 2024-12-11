@@ -172,6 +172,7 @@ func newState() *state {
 		"os.Setenv": {convFunc: func(arg []string) string {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
+		"os.Pipe":              {exp: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && eval "exec "$(( ++GOTOSH_fd + 2 ))"<>$_tmp/f" $(( ++GOTOSH_fd + 2 ))">$_tmp/f" && _tmp0=$(( GOTOSH_fd + 1 )) && _tmp1=$(( GOTOSH_fd + 2 )) && rm -rf $_tmp`, retTypes: []Type{"*os.File", "*os.File", "StatusCode"}},
 		"os.Open":              {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))"<{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []Type{"*os.File", "StatusCode"}},
 		"os.Create":            {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))">{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []Type{"*os.File", "StatusCode"}},
 		"os.Mkdir":             {exp: "mkdir {0}", retTypes: []Type{"StatusCode"}},

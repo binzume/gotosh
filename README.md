@@ -128,6 +128,7 @@ main "${@}"
 - [os.Hostname](https://pkg.go.dev/os#Hostname)
 - [os.Getenv](https://pkg.go.dev/os#Getenv)
 - [os.Setenv](https://pkg.go.dev/os#Setenv)
+- [os.Pipe](https://pkg.go.dev/os#Pipe)
 - [os.Open](https://pkg.go.dev/os#Open)
 - [os.Create](https://pkg.go.dev/os#Create)
 - [os.Mkdir](https://pkg.go.dev/os#Mkdir)
@@ -198,8 +199,9 @@ sliceの実装はbash専用です。zshの場合は `setopt KSH_ARRAYS` を追�
 
 ## goroutine
 
-サブプロセスとして実行されます。いまのところ、起動したgoroutineとの通信手段は用意していません。
-また、無名関数も使えないので通常の関数を使ってください。
+サブプロセスとして実行されます。無名関数はまだサポートされていないので通常の名前付きの関数を呼び出してください。
+
+また、チャネルも使えないので、`os.Pipe()` (fifoが作られます)で作ったreader/writer等で通信してください。
 
 # License
 
