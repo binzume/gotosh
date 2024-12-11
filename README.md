@@ -53,37 +53,40 @@ func FizzBuzz(n int) {
 }
 
 func main() {
-	FizzBuzz(100)
+	FizzBuzz(50)
 }
 ```
 
 ### Output(fizz_buzz.sh)
 
 ```bash
-#!/bin/sh
+#!/bin/bash
 
 fizz="Fizz"
 buzz="Buzz"
 function FizzBuzz() {
   local n="$1"; shift
   i=1
-  while [ $(( i<=n )) -ne 0 ]; do
-    if [ $(( i%15==0 )) -ne 0 ]; then
+  while [ $(( i<=n )) -ne 0 ]; do :
+    if [ $(( i%15 == 0 )) -ne 0 ]; then :
       echo "$fizz""$buzz"
-    elif [ $(( i%3==0 )) -ne 0 ]; then
+    elif [ $(( i%3 == 0 )) -ne 0 ]; then :
       echo "$fizz"
-    elif [ $(( i%5==0 )) -ne 0 ]; then
+    elif [ $(( i%5 == 0 )) -ne 0 ]; then :
       echo "$buzz"
     else
-      echo "$i"
+      echo $i
     fi
 
   let "i++"; done
+
 }
 
-# function main()
-  FizzBuzz 100
-# end of main
+function main() {
+  FizzBuzz 50
+}
+
+main "${@}"
 ```
 
 ## Supported functions
