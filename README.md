@@ -10,10 +10,11 @@ Goのコードをシェルスクリプトに変換するやつです。
 Supported:
 
 - Types: `int`, `string`, `[]int`, `[]string` 
-- Go keyword, func, if, else, for, break, continue, const, var, append, len, go
+- Go keywords: func, if, else, for, break, continue, const, var, append, len, go
 
 TODO:
 
+- struct support
 - jq, curl support
 - Convert bash/compiler.go to compiler.sh
 
@@ -88,6 +89,12 @@ function FizzBuzz() {
 ## Supported functions
 
 - [bash.*](bash/builtin.go)
+- [bash.NArg](bash/builtin.go)
+- [bash.Arg](bash/builtin.go)
+- [bash.Exec](bash/builtin.go)
+- [bash.ReadLine](bash/builtin.go)
+- [bash.Sleep](bash/builtin.go)
+- [bash.UnixTimeMs](bash/builtin.go)
 - [fmt.Print](https://pkg.go.dev/fmt#Print)
 - [fmt.Println](https://pkg.go.dev/fmt#Println)
 - [fmt.Printf](https://pkg.go.dev/fmt#Printf)
@@ -152,14 +159,16 @@ func main() {
 
 ## サポートしていないものがたくさんあります
 
-- defer, range, make, new, chan, switch, select, struct, map...
+- defer, range, make, new, chan, switch, select, map...
 
 ## 型
 
 - 利用可能な型は、`int`, `string`, `[]int`, `[]string` のみです
 - 定数の場合のみ`float`を扱えます(例： `bash.Sleep(0.1)` は有効)
+- structのサポートはまだ途中です。フィールドへの代入や参照はできますがstructを返す式(関数を含む)がまだ使えません
 
 sliceの実装はbash専用です。zshの場合は `setopt KSH_ARRAYS` を追加する必要があると思います。
+
 
 ## 関数
 
@@ -180,7 +189,7 @@ sliceの実装はbash専用です。zshの場合は `setopt KSH_ARRAYS` を追�
 - (*, StatusCode)
 - (TempVarString, TempVarString, ..., StatusCode)
 
-## レシーバ
+### レシーバ
 
 レシーバのある関数(メソッド)も使えますが、ポインタが無いのでメソッド内で自身の値を書き換えることはできません。
 

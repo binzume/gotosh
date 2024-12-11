@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/binzume/gotosh/bash"
@@ -52,10 +53,13 @@ func returnStringMulti() (bash.TempVarString, bash.TempVarString, bash.TempVarSt
 	return "abc", "def", "ghi"
 }
 
-type User string // only available int or string type...
+type Person struct {
+	Name string
+	Age  int
+}
 
-func (a User) Hello() {
-	fmt.Println("I am " + a + ".")
+func (a Person) Hello() {
+	fmt.Println("I am " + a.Name + "(" + strconv.Itoa(a.Age) + ").")
 }
 
 func main() {
@@ -81,12 +85,20 @@ func main() {
 	msg3, msg4, msg5 := returnStringMulti()
 	fmt.Println(msg3, msg4, msg5)
 
-	// method call
-	var t User = "test"
-	t.Hello()
+	// method call TODO: struct support
+	var p Person
+	p.Name = "test"
+	p.Age = 123
+	d := p
+	d.Hello()
 
 	// for debugging
 	fmt.Println(reflect.TypeOf(msg))
 
 	fmt.Println(strings.Index("hello, world", "ld"))
+
+	// TODO: remove "(,)"
+	if (("") == "a") || (1+1 == 2) {
+		fmt.Println("true")
+	}
 }
