@@ -41,6 +41,11 @@ func (t Type) MemberName(name string) string {
 	return strings.TrimPrefix(string(t), "*") + "__" + name
 }
 
+type TypedName struct {
+	Name string
+	Type Type
+}
+
 type shExpression struct {
 	exp      string
 	typ      string
@@ -98,6 +103,7 @@ type state struct {
 	imports      map[string]string
 	funcs        map[string]shFunc
 	vars         map[string]Type
+	types        map[Type]Type
 	cl           []string
 	useExFor     bool
 	lastToken    rune
@@ -113,6 +119,7 @@ func newState() *state {
 	s.w = os.Stdout
 	s.imports = map[string]string{}
 	s.vars = map[string]Type{}
+	s.types = map[Type]Type{}
 	s.funcs = map[string]shFunc{
 		"bash.Sleep":      {exp: "sleep"},
 		"bash.Exit":       {exp: "exit"},
@@ -309,10 +316,26 @@ func (s *state) readType(scaned bool) Type {
 	return Type(strings.TrimPrefix(t, "bash."))
 }
 
+func (s *state) fields(t Type, name string) []TypedName {
+	for s.types[t] != "" {
+		t = s.types[t]
+	}
+	f := strings.Split(string(t), ":")
+	if len(f) < 4 {
+		return []TypedName{{name, t}}
+	}
+	var ret []TypedName
+	for i := 1; i < len(f)-2; i += 2 {
+		ret = append(ret, TypedName{name + "." + f[i], Type(f[i+1])})
+	}
+	return ret
+}
+
 func (s *state) readName() string {
-	name := ""
-	for tok := s.lastToken; tok == '.' || tok == scanner.Ident; tok = s.Scan() {
-		name += s.TokenText()
+	name := s.TokenText()
+	for tok := s.Scan(); tok == '.'; tok = s.Scan() {
+		s.Scan()
+		name += "." + s.TokenText()
 	}
 	return name
 }
@@ -324,16 +347,25 @@ func (s *state) readFuncCall(name string) *shExpression {
 		name = name[p+1:]
 		if s.vars[ns] != "" {
 			name = s.vars[ns].MemberName(name)
-			args = append(args, `"`+varValue(strings.ReplaceAll(ns, ".", "__"))+`"`)
+			for _, field := range s.fields(s.vars[ns], ns) {
+				args = append(args, `"`+varValue(strings.ReplaceAll(field.Name, ".", "__"))+`"`)
+			}
 		} else if s.imports[ns] != "" {
 			name = path.Base(s.imports[ns]) + "." + name
 		}
 	}
 	for s.lastToken != scanner.EOF && s.lastToken != ')' {
 		e := s.readExpression("", true)
-		args = append(args, e.AsValue())
-		for i := range e.retTypes {
-			if i != 0 && RetVarName(e.retTypes, i) != "" {
+		for i, t := range e.retTypes {
+			if i == 0 {
+				for _, field := range s.fields(t, "") {
+					if field.Name != "" {
+						args = append(args, `"$`+strings.ReplaceAll(varName(e.AsValue())+field.Name, ".", "__")+`"`)
+					} else {
+						args = append(args, e.AsValue())
+					}
+				}
+			} else if i != 0 && RetVarName(e.retTypes, i) != "" {
 				args = append(args, `"`+varValue(RetVarName(e.retTypes, i))+`"`)
 			}
 		}
@@ -456,9 +488,10 @@ func (s *state) readExpression(typeHint Type, ignoreNewLine bool) *shExpression 
 		return funcRet
 	}
 	if tokens == 1 && !isString && singleVar {
+		typeHint = s.vars[exp]
 		exp = varValue(exp)
 	}
-	e := &shExpression{exp: exp}
+	e := &shExpression{exp: exp, retTypes: []Type{"any"}}
 	if isString && typeHint == "bool" {
 		e.typ = "STR_CMP"
 		e.retTypes = []Type{typeHint}
@@ -487,6 +520,7 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 	statusIndex := -1
 	for i, name := range names {
 		vn := RetVarName(e.retTypes, i)
+
 		if vn == "?" {
 			statusIndex = i
 		} else if e.retVar != name && vn == "" {
@@ -503,6 +537,8 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 		}
 		if s.vars[name] == "TempVarString" { // TODO
 			s.vars[name] = "string"
+		} else if s.vars[name] == "StatusCode" {
+			s.vars[name] = "int"
 		}
 	}
 	if s.vars[names[0]].IsArray() {
@@ -510,23 +546,32 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 	}
 	writeAssign := func(i int) {
 		local := decrare && s.funcName != ""
-		name := strings.ReplaceAll(names[i], ".", "__")
-		vn := RetVarName(e.retTypes, i)
-		if local && name != "_" {
-			s.WriteString("local ")
-			if readonly {
-				s.WriteString("-r ")
+		for _, field := range s.fields(s.vars[names[i]], "") {
+			if field.Name != "" {
+				s.vars[names[i]+field.Name] = field.Type
 			}
-		}
-		if i == primaryIndex && v != "" {
-			if local && statusIndex >= 0 {
-				s.Writeln(name) // to avoid 'local' modify status code
+			name := strings.ReplaceAll(names[i]+field.Name, ".", "__")
+			vn := RetVarName(e.retTypes, i)
+			if local && name != "_" {
+				s.WriteString("local ")
+				if readonly {
+					s.WriteString("-r ")
+				}
 			}
-			s.Writeln(strings.ReplaceAll(name, ".", "__") + "=" + v)
-		} else if vn != "" && name != e.retVar && name != "_" {
-			s.Writeln(name + "=\"$" + vn + "\"")
-		} else if local && name != "_" {
-			s.Writeln(name)
+			if i == primaryIndex && v != "" {
+				if local && statusIndex >= 0 {
+					s.Writeln(name) // to avoid 'local' modify status code
+				}
+				if field.Name != "" {
+					s.Writeln(name + `="$` + varName(v) + strings.ReplaceAll(field.Name, ".", "__") + `"`)
+				} else {
+					s.Writeln(name + "=" + v)
+				}
+			} else if vn != "" && name != e.retVar && name != "_" {
+				s.Writeln(name + "=\"$" + vn + field.Name + "\"")
+			} else if local && name != "_" {
+				s.Writeln(name)
+			}
 		}
 	}
 	if primaryIndex >= 0 {
@@ -609,10 +654,12 @@ func (s *state) procFunc() {
 	s.Writeln("function " + name + "() {")
 	s.cl = append(s.cl, "}")
 	for _, arg := range args {
-		if s.vars[arg].IsArray() {
-			s.Writeln("local " + arg + `=("$@")`)
-		} else {
-			s.Writeln("local " + arg + `="$1"; shift`)
+		for _, field := range s.fields(s.vars[arg], arg) {
+			if field.Type.IsArray() {
+				s.Writeln("local " + strings.ReplaceAll(field.Name, ".", "__") + `=("$@")`)
+			} else {
+				s.Writeln("local " + strings.ReplaceAll(field.Name, ".", "__") + `="$1"; shift`)
+			}
 		}
 	}
 	f := shFunc{exp: name, retTypes: retTypes, stdout: len(retTypes) > 0 && retTypes[0] != "StatusCode" && retTypes[0] != "TempVarString"}
@@ -711,7 +758,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 				s.Scan()
 				name := s.TokenText()
 				s.Scan()
-				s.Writeln("## type ", name, s.readType(s.lastToken != '=')) // TODO
+				s.types[Type(name)] = s.readType(s.lastToken != '=')
 			case "for":
 				s.procFor()
 			case "if":
