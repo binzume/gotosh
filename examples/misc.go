@@ -58,6 +58,14 @@ type Person struct {
 	Age  int
 }
 
+func NewPerson(name string, age int) Person {
+	// TODO return Person{Name: name, Age: age}
+	var p Person
+	p.Name = name
+	p.Age = age
+	return p
+}
+
 func (a Person) Hello() {
 	fmt.Println("I am " + a.Name + "(" + strconv.Itoa(a.Age) + ").")
 }
@@ -86,9 +94,7 @@ func main() {
 	fmt.Println(msg3, msg4, msg5)
 
 	// method call TODO: struct support
-	var p Person
-	p.Name = "test"
-	p.Age = 123
+	p := NewPerson("test", 123)
 	d := p
 	d.Hello()
 

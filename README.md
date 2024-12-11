@@ -10,11 +10,11 @@ Goのコードをシェルスクリプトに変換するやつです。
 Supported:
 
 - Types: `int`, `string`, `[]int`, `[]string` 
-- Go keywords: func, if, else, for, break, continue, const, var, append, len, go
+- Go keywords: func, if, else, for, break, continue, const, var, struct, append, len, go
 
 TODO:
 
-- struct support
+- os.Pipe
 - jq, curl support
 - Convert bash/compiler.go to compiler.sh
 
@@ -168,7 +168,7 @@ func main() {
 
 - 利用可能な型は、`int`, `string`, `[]int`, `[]string` のみです
 - 定数の場合のみ`float`を扱えます(例： `bash.Sleep(0.1)` は有効)
-- structのサポートはまだ途中です。フィールドへの代入や参照はできますがstructを返す式(関数を含む)がまだ使えません
+- structのサポートはまだ途中です
 
 sliceの実装はbash専用です。zshの場合は `setopt KSH_ARRAYS` を追加する必要があると思います。
 
