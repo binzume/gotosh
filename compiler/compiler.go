@@ -155,21 +155,21 @@ func newState() *state {
 		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true},
 		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []Type{"int"}, stdout: true},
 		// os
-		"os.Stdin":    {exp: "0", retTypes: []Type{"io.Reader"}}, // variable
-		"os.Stdout":   {exp: "1", retTypes: []Type{"io.Reader"}}, // variable
+		"os.Stdin":    {exp: "0", retTypes: []Type{"*os.File"}}, // variable
+		"os.Stdout":   {exp: "1", retTypes: []Type{"*os.File"}}, // variable
 		"os.Exit":     {exp: "exit"},
 		"os.Getwd":    {exp: "pwd", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"os.Chdir":    {exp: "cd", retTypes: []Type{"StatusCode"}, stdout: true},
-		"os.Getpid":   {exp: "$$"},
-		"os.Getppid":  {exp: "$PPID"},
-		"os.Getuid":   {exp: "${UID:--1}"},
-		"os.Geteuid":  {exp: "${EUID:-${UID:--1}}"},
-		"os.Getgid":   {exp: "${GID:--1}"},
-		"os.Getegid":  {exp: "${EGID:-${GID:--1}}"},
+		"os.Getpid":   {exp: "$$", retTypes: []Type{"int"}},
+		"os.Getppid":  {exp: "$PPID", retTypes: []Type{"int"}},
+		"os.Getuid":   {exp: "${UID:--1}", retTypes: []Type{"int"}},
+		"os.Geteuid":  {exp: "${EUID:-${UID:--1}}", retTypes: []Type{"int"}},
+		"os.Getgid":   {exp: "${GID:--1}", retTypes: []Type{"int"}},
+		"os.Getegid":  {exp: "${EGID:-${GID:--1}}", retTypes: []Type{"int"}},
 		"os.Hostname": {exp: "uname -n", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"os.Getenv": {convFunc: func(arg []string) string {
 			return "\"${" + trimQuote(arg[0]) + "}\""
-		}},
+		}, retTypes: []Type{"string"}},
 		"os.Setenv": {convFunc: func(arg []string) string {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
