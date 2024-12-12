@@ -562,9 +562,6 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 			s.vars[name] = "int"
 		}
 	}
-	if s.vars[names[0]].IsArray() {
-		v = "(" + strings.Join(e.retValues, " ") + v + ")"
-	}
 	writeAssign := func(i int) {
 		local := decrare && s.funcName != ""
 		for vi, field := range s.fields(s.vars[names[i]], "") {
@@ -583,7 +580,9 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 				}
 			}
 			tv := v
-			if i == primaryIndex && len(e.retValues) > vi {
+			if i == primaryIndex && s.vars[name].IsArray() {
+				tv = "(" + strings.Join(e.retValues, " ") + v + ")"
+			} else if i == primaryIndex && len(e.retValues) > vi {
 				tv = e.retValues[vi]
 			}
 			if i == primaryIndex && tv != "" {
