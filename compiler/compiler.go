@@ -759,6 +759,15 @@ func (s *state) procSentense() {
 		s.procAssign(names, false, false)
 	} else if tok == '(' {
 		s.Writeln(s.readFuncCall(names[0]).AsExec())
+	} else if tok == '+' || tok == '-' || tok == '*' || tok == '/' {
+		op := s.TokenText()
+		if tok = s.Scan(); tok == '=' {
+			op += "=" + s.readExpression("", false).AsValue()
+		} else {
+			op += s.TokenText()
+			s.skipNextScan = true
+		}
+		s.Writeln("let " + varName(names[0]) + op)
 	} else {
 		fmt.Printf("# Unknown token %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
 	}
