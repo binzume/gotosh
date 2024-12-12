@@ -166,26 +166,31 @@ func newState() *state {
 		"os.Geteuid":  {exp: "${EUID:-${UID:--1}}"},
 		"os.Getgid":   {exp: "${GID:--1}"},
 		"os.Getegid":  {exp: "${EGID:-${GID:--1}}"},
-		"os.Hostname": {exp: "hostname", retTypes: []Type{"string", "StatusCode"}, stdout: true},
+		"os.Hostname": {exp: "uname -n", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"os.Getenv": {convFunc: func(arg []string) string {
 			return "\"${" + trimQuote(arg[0]) + "}\""
 		}},
 		"os.Setenv": {convFunc: func(arg []string) string {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
-		"os.Pipe":              {exp: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && eval "exec "$(( ++GOTOSH_fd + 2 ))"<>$_tmp/f" $(( ++GOTOSH_fd + 2 ))">$_tmp/f" && _tmp0=$(( GOTOSH_fd + 1 )) && _tmp1=$(( GOTOSH_fd + 2 )) && rm -rf $_tmp`, retTypes: []Type{"*os.File", "*os.File", "StatusCode"}},
-		"os.Open":              {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))"<{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []Type{"*os.File", "StatusCode"}},
-		"os.Create":            {exp: `eval "exec "$(( ++GOTOSH_fd + 2 ))">{0}" && _tmp0=$(( GOTOSH_fd + 2 ))`, retTypes: []Type{"*os.File", "StatusCode"}},
+		"os.Pipe":              {exp: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && _tmp0=$(( ++GOTOSH_fd + 2 )) && _tmp1=$(( ++GOTOSH_fd + 2 )) && eval "exec $_tmp1<>\"$_tmp/f\" $_tmp0<\"$_tmp/f\"" && rm -rf $_tmp`, retTypes: []Type{"*os.File", "*os.File", "StatusCode"}},
+		"os.Open":              {exp: `_tmp0=$(( ++GOTOSH_fd + 2 )) ; eval "exec $_tmp0<{0}"`, retTypes: []Type{"*os.File", "StatusCode"}},
+		"os.Create":            {exp: `_tmp0=$(( ++GOTOSH_fd + 2 )) ; eval "exec $_tmp0>{0}"`, retTypes: []Type{"*os.File", "StatusCode"}},
 		"os.Mkdir":             {exp: "mkdir {0}", retTypes: []Type{"StatusCode"}},
 		"os.MkdirAll":          {exp: "mkdir -p {0}", retTypes: []Type{"StatusCode"}},
 		"os.Remove":            {exp: "rm -f", retTypes: []Type{"StatusCode"}},
 		"os.RemoveAll":         {exp: "rm -rf", retTypes: []Type{"StatusCode"}},
 		"os.Rename":            {exp: "mv", retTypes: []Type{"StatusCode"}},
+		"os.File__WriteString": {exp: `echo -n {1}>&{0}`},
+		"os.File__Close":       {exp: `eval "exec {0}<&- {0}>&-"`},
+		"io.Reader__Close":     {exp: `eval "exec {0}<&- {0}>&-"`},
+		"io.Writer__Close":     {exp: `eval "exec {0}<&- {0}>&-"`},
 		"exec.Command":         {exp: "echo -n ", retTypes: []Type{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
 		"exec.Cmd__Output":     {exp: "bash -c", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"reflect.TypeOf":       {retTypes: []Type{"_string"}, convFunc: func(arg []string) string { return `"` + string(s.vars[varName(arg[0])]) + `"` }},
-		"os.File__Close":       {exp: `eval "exec {0}<&-;exec {0}>&-"`}, // TODO
-		"os.File__WriteString": {exp: `echo -n {1}>&{0}`},               // TODO
+		"runtime.Compiler":     {exp: "'gotosh'", retTypes: []Type{"string"}},               // constant
+		"runtime.GOARCH":       {exp: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
+		"runtime.GOOS":         {exp: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
 		// TODO: cast
 		"int":             {retTypes: []Type{"int"}},
 		"byte":            {retTypes: []Type{"int"}},
