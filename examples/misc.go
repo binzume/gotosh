@@ -53,21 +53,26 @@ func returnStringMulti() (bash.TempVarString, bash.TempVarString, bash.TempVarSt
 	return "abc", "def", "ghi"
 }
 
+type Date struct {
+	// TODO: support "Year, Mmonth, Day int"
+	Year  int
+	Month int
+	Day   int
+}
 type Person struct {
-	Name string
-	Age  int
+	Name     string
+	Age      int
+	Birthday Date
 }
 
 func NewPerson(name string, age int) Person {
-	// TODO return Person{Name: name, Age: age}
-	var p Person
-	p.Name = name
-	p.Age = age
-	return p
+	// TODO: support "Person{Name: name, Age: age}"
+	return Person{name, age, Date{2001, 2, 3}}
 }
 
 func (a Person) Hello() {
 	fmt.Println("I am " + a.Name + "(" + strconv.Itoa(a.Age) + ").")
+	fmt.Println(" ", a.Birthday.Year, a.Birthday.Month, a.Birthday.Day)
 }
 
 func main() {
@@ -93,7 +98,7 @@ func main() {
 	msg3, msg4, msg5 := returnStringMulti()
 	fmt.Println(msg3, msg4, msg5)
 
-	// method call TODO: struct support
+	// struct and method call
 	p := NewPerson("test", 123)
 	d := p
 	d.Hello()
