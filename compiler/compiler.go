@@ -129,7 +129,7 @@ func newState() *state {
 		"bash.Read":       {exp: `IFS= read -r -s _tmp0`, retTypes: []Type{"TempVarString", "StatusCode"}},
 		"bash.ReadLine":   {exp: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []Type{"TempVarString", "StatusCode"}},
 		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []Type{"string"}},
-		"bash.Arg":        {exp: `eval echo \\${{0}}`, retTypes: []Type{"string"}, stdout: true},
+		"bash.Arg":        {exp: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true},
 		"bash.NArgs":      {exp: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
 		"bash.UnixTimeMs": {exp: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []Type{"int"}, stdout: true},
 		// fmt
@@ -187,7 +187,7 @@ func newState() *state {
 		"io.Writer__Close":     {exp: `eval "exec {0}<&- {0}>&-"`},
 		"exec.Command":         {exp: "echo -n ", retTypes: []Type{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
 		"exec.Cmd__Output":     {exp: "bash -c", retTypes: []Type{"string", "StatusCode"}, stdout: true},
-		"reflect.TypeOf":       {retTypes: []Type{"_string"}, convFunc: func(arg []string) string { return `"` + string(s.vars[varName(arg[0])]) + `"` }},
+		"reflect.TypeOf":       {retTypes: []Type{"string"}, convFunc: func(arg []string) string { return `"` + string(s.vars[varName(arg[0])]) + `"` }},
 		"runtime.Compiler":     {exp: "'gotosh'", retTypes: []Type{"string"}},               // constant
 		"runtime.GOARCH":       {exp: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
 		"runtime.GOOS":         {exp: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
@@ -316,7 +316,7 @@ func (s *state) readType(scaned bool) Type {
 		t += string(s.readType(false))
 	} else if s.lastToken == '[' {
 		t += s.TokenText()
-		s.readExpression("int", true) // ignore array size
+		s.readExpression("int", ']') // ignore array size
 		t += s.TokenText()
 		t += string(s.readType(false))
 	}
@@ -347,7 +347,7 @@ func (s *state) readName() string {
 	return name
 }
 
-func (s *state) readFuncCall(name string) *shExpression {
+func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	var args []string
 	if p := strings.LastIndex(name, "."); p >= 0 {
 		ns := name[:p]
@@ -361,23 +361,21 @@ func (s *state) readFuncCall(name string) *shExpression {
 			name = path.Base(s.imports[ns]) + "." + name
 		}
 	}
-	if s.lastToken == '(' {
-		for s.lastToken != scanner.EOF && s.lastToken != ')' {
-			e := s.readExpression("", true)
-			for i, t := range e.retTypes {
-				if i == 0 && len(e.retValues) > 0 {
-					args = append(args, e.retValues...)
-				} else if i == 0 {
-					for _, field := range s.fields(t, "") {
-						if field.Name != "" {
-							args = append(args, `"$`+varName(e.AsValue()+field.Name)+`"`)
-						} else {
-							args = append(args, e.AsValue())
-						}
+	for !variable && s.lastToken != scanner.EOF && s.lastToken != ')' {
+		e := s.readExpression("", ',')
+		for i, t := range e.retTypes {
+			if i == 0 && len(e.retValues) > 0 {
+				args = append(args, e.retValues...)
+			} else if i == 0 {
+				for _, field := range s.fields(t, "") {
+					if field.Name != "" {
+						args = append(args, `"$`+varName(e.AsValue()+field.Name)+`"`)
+					} else {
+						args = append(args, e.AsValue())
 					}
-				} else if i != 0 && RetVarName(e.retTypes, i) != "" {
-					args = append(args, `"`+varValue(RetVarName(e.retTypes, i))+`"`)
 				}
+			} else if i != 0 && RetVarName(e.retTypes, i) != "" {
+				args = append(args, `"`+varValue(RetVarName(e.retTypes, i))+`"`)
 			}
 		}
 	}
@@ -404,7 +402,7 @@ func (s *state) readFuncCall(name string) *shExpression {
 	return &shExpression{exp: exp, typ: "FUNC", retTypes: f.retTypes, retVar: retVar, stdout: f.stdout}
 }
 
-func (s *state) readExpression(typeHint Type, ignoreNewLine bool) *shExpression {
+func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 	exp := ""
 	l := s.Line
 	s.Scan()
@@ -415,25 +413,25 @@ func (s *state) readExpression(typeHint Type, ignoreNewLine bool) *shExpression 
 		e := &shExpression{retTypes: []Type{s.readType(true)}}
 		s.Scan() // {
 		for s.lastToken != scanner.EOF && s.lastToken != '}' {
-			elm := s.readExpression("", true)
+			elm := s.readExpression("", ',')
 			e.retValues = append(e.retValues, elm.retValues...)
 			if len(elm.retValues) == 0 {
 				e.retValues = append(e.retValues, elm.AsValue())
 			}
-
 		}
+		s.readExpression(typeHint, endTok) // scan endTok
 		return e
 	}
 	tokens := 0
 	var funcRet *shExpression
 	lastVar := "#"
 	var isString = typeHint == "string"
-	for ; s.lastToken != scanner.EOF && (ignoreNewLine || s.Line == l); s.Scan() {
+	for ; s.lastToken != scanner.EOF && (endTok != 0 || s.Line == l); s.Scan() {
 		tok := s.lastToken
-		if tok == ')' || typeHint != "" && tok == ':' || tok == ',' || tok == ';' || tok == ']' || tok == '{' || tok == '}' {
+		if tok == ')' || tok == endTok || tok == ',' || tok == ';' || tok == ']' || tok == '}' {
 			break
 		} else if tok == '(' {
-			funcRet = s.readExpression("", true)
+			funcRet = s.readExpression("", ')')
 			if !isString && funcRet.typ == "INT_EXP" {
 				exp += "(" + funcRet.exp + ")"
 			} else {
@@ -469,7 +467,7 @@ func (s *state) readExpression(typeHint Type, ignoreNewLine bool) *shExpression 
 			if s.lastToken == '[' {
 				var idx []*shExpression
 				for s.lastToken != scanner.EOF && s.lastToken != ']' {
-					idx = append(idx, s.readExpression("int", true))
+					idx = append(idx, s.readExpression("int", ':'))
 				}
 				if len(idx) == 1 {
 					t = ot + "[" + idx[0].AsValue() + "]"
@@ -484,7 +482,7 @@ func (s *state) readExpression(typeHint Type, ignoreNewLine bool) *shExpression 
 				t = "0"
 			}
 			if s.lastToken == '(' || s.funcs[ot].exp != "" {
-				funcRet = s.readFuncCall(ot)
+				funcRet = s.readFuncCall(ot, s.lastToken != '(')
 				t = funcRet.AsValue()
 				if len(funcRet.retTypes) > 0 && funcRet.retTypes[0] == "string" {
 					isString = true
@@ -532,7 +530,7 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 		typ = s.readType(false)
 		names = append(names, name)
 	}
-	e := s.readExpression(typ, false)
+	e := s.readExpression(typ, 0)
 	v := e.AsValue()
 	primaryIndex := -1
 	statusIndex := -1
@@ -615,7 +613,7 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 func (s *state) procReturn() {
 	var status *shExpression
 	for i, t := range s.funcs[s.funcName].retTypes {
-		e := s.readExpression("", false)
+		e := s.readExpression("", 0)
 
 		if t == "StatusCode" {
 			status = e
@@ -704,7 +702,7 @@ func (s *state) procFor() {
 
 	n := 0
 	for ; s.lastToken != scanner.EOF && s.lastToken != '{' && n < 3; n++ {
-		f[n] = s.readExpression("", true)
+		f[n] = s.readExpression("", '{')
 	}
 
 	if s.useExFor {
@@ -731,14 +729,14 @@ func (s *state) procFor() {
 }
 
 func (s *state) procIf() {
-	s.Writeln("if [ " + s.readExpression("bool", true).AsValue() + " -ne 0 ]; then :")
+	s.Writeln("if [ " + s.readExpression("bool", '{').AsValue() + " -ne 0 ]; then :")
 	s.cl = append(s.cl, "fi")
 }
 
 func (s *state) procElse() {
 	s.bufLine = "" // cancel fi
 	if s.Scan() == scanner.Ident && s.TokenText() == "if" {
-		s.Writeln("elif [ " + s.readExpression("bool", true).AsValue() + " -ne 0 ]; then :")
+		s.Writeln("elif [ " + s.readExpression("bool", '{').AsValue() + " -ne 0 ]; then :")
 	} else {
 		s.Writeln("else")
 	}
@@ -758,14 +756,13 @@ func (s *state) procSentense() {
 	} else if tok == '=' {
 		s.procAssign(names, false, false)
 	} else if tok == '(' {
-		s.Writeln(s.readFuncCall(names[0]).AsExec())
-	} else if tok == '+' || tok == '-' || tok == '*' || tok == '/' {
+		s.Writeln(s.readFuncCall(names[0], false).AsExec())
+	} else if tok == '+' || tok == '-' || tok == '*' || tok == '/' || tok == '%' {
 		op := s.TokenText()
-		if tok = s.Scan(); tok == '=' {
-			op += "=" + s.readExpression("", false).AsValue()
-		} else {
-			op += s.TokenText()
-			s.skipNextScan = true
+		tok = s.Scan()
+		op += s.TokenText()
+		if tok == '=' {
+			op += s.readExpression("int", 0).AsValue()
 		}
 		s.Writeln("let " + varName(names[0]) + op)
 	} else {
@@ -817,7 +814,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "const":
 				s.procAssign(nil, true, true)
 			case "go":
-				s.Writeln(s.readExpression("", false).AsExec() + " &")
+				s.Writeln(s.readExpression("", 0).AsExec() + " &")
 			default:
 				s.procSentense()
 			}
