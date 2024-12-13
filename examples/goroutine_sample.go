@@ -2,27 +2,43 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"runtime"
+	"strconv"
 
 	"github.com/binzume/gotosh/bash"
 )
 
-func routine(i int) {
-	fmt.Println("a")
-	bash.Sleep(1.0)
-	fmt.Println("b")
-	bash.Sleep(1.0)
-	fmt.Println("c")
+func routine1(w *os.File) {
+	for i := 0; i < 6; i++ {
+		bash.Sleep(0.5)
+		fmt.Println("write", i)
+		w.WriteString("data" + strconv.Itoa(i) + "\n")
+	}
+	fmt.Println("finished.")
+	w.Close()
 }
 
 func main() {
-	for i := 0; i < 10; i++ {
-		go routine(i)
+	r, w, err := os.Pipe()
+	if err != nil {
+		fmt.Println("os.Pipe() error", err)
+		return
 	}
-	bash.Sleep(0.5)
-	fmt.Println("Started")
+	go routine1(w)
+	if runtime.Compiler == "gotosh" {
+		// Workaroud: the fd shoud be closed from both processes
+		w.Close()
+	}
 
-	// No way to communicate with goroutines... so just sleep.
-	bash.Sleep(3)
-
-	fmt.Println("Finished!(maybe)")
+	fmt.Println("Waiting...")
+	for {
+		ret, err := bash.ReadLine(r)
+		if err != 0 {
+			break
+		}
+		fmt.Println("read:", ret)
+	}
+	r.Close()
+	fmt.Println("ok.")
 }
