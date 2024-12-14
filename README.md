@@ -130,7 +130,6 @@ main "${@}"
 - [os.Hostname](https://pkg.go.dev/os#Hostname)
 - [os.Getenv](https://pkg.go.dev/os#Getenv)
 - [os.Setenv](https://pkg.go.dev/os#Setenv)
-- [os.Pipe](https://pkg.go.dev/os#Pipe)
 - [os.Open](https://pkg.go.dev/os#Open)
 - [os.Create](https://pkg.go.dev/os#Create)
 - [os.Mkdir](https://pkg.go.dev/os#Mkdir)
@@ -138,6 +137,7 @@ main "${@}"
 - [os.Remove](https://pkg.go.dev/os#Remove)
 - [os.RemoveAll](https://pkg.go.dev/os#RemoveAll)
 - [os.Rename](https://pkg.go.dev/os#Rename)
+- [os.Pipe](https://pkg.go.dev/os#Pipe)
 
 Constatns:
 
@@ -252,9 +252,9 @@ sliceなども含めて全ての値は値渡しです。
 
 # Security
 
-なるべく気を使っていますが、ash(またはPOSIXシェル)で動作させるために `eval` している箇所があります(引数はint型なので大丈夫なはずですが)。
-また、あまりテストされていないのでスクリプト生成時のエスケープ漏れなどもあるかもしれません。
-信頼されない入力値を受け取るプログラムには使わないほうが無難です。
+なるべく気を使っていますが、ash(またはPOSIXシェル)で動作させるために `eval` している箇所があります。
+また、あまりテストされていないのでスクリプト生成時のエスケープ漏れなどもありそうです。
+信頼されない入力値を受け取るプログラムには使わないか、入力を注意深くバリデートしてください。
 
 # License
 
