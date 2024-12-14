@@ -304,6 +304,9 @@ func (s *state) readType(scaned bool) Type {
 		} else if t == "struct" {
 			s.Scan() // {
 			for ; s.lastToken != '}' && s.lastToken != scanner.EOF; s.Scan() {
+				if s.lastToken == scanner.RawString || s.lastToken == scanner.String {
+					continue // ignore tag
+				}
 				t += s.TokenText() + ":" // TODO
 			}
 			t += s.TokenText()
