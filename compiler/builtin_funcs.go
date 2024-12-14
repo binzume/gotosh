@@ -11,8 +11,8 @@ var InitBuiltInFuncs = func(s *state) {
 		"shell.Exit":          {exp: "exit"},
 		"shell.Export":        {exp: "export"},
 		"shell.Exec":          {retTypes: []Type{"string", "StatusCode"}, stdout: true},
-		"shell.Read":          {exp: `IFS= read -r -s _tmp0`, retTypes: []Type{"TempVarString", "StatusCode"}},
-		"shell.ReadLine":      {exp: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []Type{"TempVarString", "StatusCode"}},
+		"shell.Read":          {exp: `IFS= read -r -s _tmp0`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1},
+		"shell.ReadLine":      {exp: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1},
 		"shell.SubStr":        {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []Type{"string"}},
 		"shell.Arg":           {exp: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true},
 		"shell.NArgs":         {exp: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
@@ -64,9 +64,10 @@ var InitBuiltInFuncs = func(s *state) {
 		"os.Setenv": {convFunc: func(arg []string) string {
 			return "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
-		"os.Pipe":              {exp: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && _tmp0=$(( ++GOTOSH_fd + 2 )) && _tmp1=$(( ++GOTOSH_fd + 2 )) && eval "exec $_tmp1<>\"$_tmp/f\" $_tmp0<\"$_tmp/f\"" && rm -rf $_tmp`, retTypes: []Type{"*os.File", "*os.File", "StatusCode"}},
-		"os.Open":              {exp: `_tmp0=$(( ++GOTOSH_fd + 2 )) ; eval "exec $_tmp0<{0}"`, retTypes: []Type{"*os.File", "StatusCode"}},
-		"os.Create":            {exp: `_tmp0=$(( ++GOTOSH_fd + 2 )) ; eval "exec $_tmp0>{0}"`, retTypes: []Type{"*os.File", "StatusCode"}},
+		"os.Pipe": {exp: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && _tmp0=$(( ++GOTOSH_fd + 2 )) && _tmp1=$(( ++GOTOSH_fd + 2 )) && eval "exec $_tmp1<>\"$_tmp/f\" $_tmp0<\"$_tmp/f\"" && rm -rf $_tmp`,
+			retTypes: []Type{"*os.File", "*os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Open":              {exp: `_tmp0=$(( ++GOTOSH_fd + 2 )) ; eval "exec $_tmp0<"{0}`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Create":            {exp: `_tmp0=$(( ++GOTOSH_fd + 2 )) ; eval "exec $_tmp0>"{0}`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
 		"os.Mkdir":             {exp: "mkdir {0}", retTypes: []Type{"StatusCode"}},
 		"os.MkdirAll":          {exp: "mkdir -p {0}", retTypes: []Type{"StatusCode"}},
 		"os.Remove":            {exp: "rm -f", retTypes: []Type{"StatusCode"}},
@@ -89,7 +90,7 @@ var InitBuiltInFuncs = func(s *state) {
 		"shell.StatusCode": {retTypes: []Type{"int"}},
 		// slice
 		"len": {retTypes: []Type{"int"}, convFunc: func(arg []string) string { return "${#" + strings.Trim(trimQuote(arg[0]), "${}") + "}" }},
-		"append": {retTypes: []Type{"_ARG1"},
+		"append": {retTypes: []Type{"_ARG1"}, primaryIdx: -1,
 			convFunc: func(arg []string) string {
 				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
 			}},

@@ -50,56 +50,54 @@ type TypedName struct {
 }
 
 type shExpression struct {
-	exp       string
-	typ       string
-	retVar    string
-	stdout    bool
-	retTypes  []Type
-	retValues []string
+	exp        string
+	typ        string
+	retVar     string
+	stdout     bool
+	retTypes   []Type
+	primaryIdx int
+	values     []string
 }
 
 func (f *shExpression) AsValue() string {
-	exp := f.exp
+	exp := strings.TrimSpace(f.exp)
 	if f.typ == "INT_EXP" {
 		exp = "$(( " + exp + " ))"
 	} else if f.typ == "STR_CMP" {
 		exp = "$([[ " + exp + " ]] && echo 1 || echo 0)"
-	} else if len(f.retTypes) > 0 && f.retTypes[0] == "StatusCode" {
+	} else if len(f.retTypes) > 0 && f.primaryIdx < 0 && f.retTypes[0] == "StatusCode" {
 		// TODO: stdout...
 		exp = "$(" + exp + " >&2; echo $?)"
-	} else if len(f.retTypes) > 0 && f.retTypes[0] == "TempVarString" {
+	} else if len(f.retTypes) > 0 && f.primaryIdx < 0 {
 		exp = "$(" + exp + " >&2 && echo \"$_tmp0\")"
 	} else if f.stdout && len(f.retTypes) > 0 && (f.retTypes[0] == "int" || f.retTypes[0].IsArray()) {
 		exp = "$(" + exp + ")"
 	} else if f.stdout {
 		exp = "\"$(" + exp + ")\""
 	}
-	return strings.TrimSpace(exp)
+	return exp
 }
 
 func RetVarName(retTypes []Type, i int) string {
-	if len(retTypes) > i {
-		if retTypes[i] == "StatusCode" {
-			return "?"
-		} else if retTypes[i] == "TempVarString" || retTypes[i] == "*os.File" || i > 0 { // TODO
-			return "_tmp" + fmt.Sprint(i)
-		}
+	if len(retTypes) > i && retTypes[i] == "StatusCode" {
+		return "?"
 	}
-	return ""
+	return "_tmp" + fmt.Sprint(i)
 }
 
 func (f *shExpression) AsExec() string {
-	if f.stdout {
+	if f.stdout && f.exp != "" {
 		return strings.TrimSpace(f.exp + " >/dev/null")
 	}
 	return strings.TrimSpace(f.exp)
 }
 
 type shFunc struct {
-	exp      string
-	stdout   bool
-	retTypes []Type
-	convFunc func(arg []string) string
+	exp        string
+	stdout     bool
+	retTypes   []Type
+	primaryIdx int
+	convFunc   func(arg []string) string
 }
 
 type state struct {
@@ -212,7 +210,7 @@ func (s *state) readType(scaned bool) Type {
 	}
 	t := ""
 	if s.lastToken == scanner.Ident {
-		t += s.TokenText()
+		t = s.TokenText()
 		if t == "map" {
 			s.Scan() // [
 			t += s.TokenText()
@@ -235,10 +233,10 @@ func (s *state) readType(scaned bool) Type {
 			t += s.TokenText()
 		}
 	} else if s.lastToken == '*' {
-		t += s.TokenText()
+		t = s.TokenText()
 		t += string(s.readType(false))
 	} else if s.lastToken == '[' {
-		t += s.TokenText()
+		t = s.TokenText()
 		s.readExpression("int", ']') // ignore array size
 		t += s.TokenText()
 		t += string(s.readType(false))
@@ -287,17 +285,17 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	for !variable && s.lastToken != scanner.EOF && s.lastToken != ')' {
 		e := s.readExpression("", ',')
 		for i, t := range e.retTypes {
-			if i == 0 && len(e.retValues) > 0 {
-				args = append(args, e.retValues...)
+			if i == e.primaryIdx && len(e.values) > 0 {
+				args = append(args, e.values...)
 			} else if i == 0 {
-				for _, field := range s.fields(t, "") {
-					if field.Name != "" {
+				if fields := s.fields(t, ""); fields[0].Name != "" {
+					for _, field := range fields {
 						args = append(args, `"$`+varName(e.AsValue()+field.Name)+`"`)
-					} else {
-						args = append(args, e.AsValue())
 					}
+				} else {
+					args = append(args, e.AsValue())
 				}
-			} else if i != 0 && RetVarName(e.retTypes, i) != "" {
+			} else if e.primaryIdx != i {
 				args = append(args, `"`+varValue(RetVarName(e.retTypes, i))+`"`)
 			}
 		}
@@ -318,11 +316,11 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	} else {
 		exp += " " + strings.Join(args, " ")
 	}
-	retVar := ""
+	e := &shExpression{exp: exp, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
 	if len(f.retTypes) > 0 && f.retTypes[0] == "_ARG1" && len(args) > 0 {
-		retVar = varName(args[0])
+		e.retVar = varName(args[0])
 	}
-	return &shExpression{exp: exp, typ: "FUNC", retTypes: f.retTypes, retVar: retVar, stdout: f.stdout}
+	return e
 }
 
 func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
@@ -337,9 +335,9 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 		s.Scan() // {
 		for s.lastToken != scanner.EOF && s.lastToken != '}' {
 			elm := s.readExpression("", ',')
-			e.retValues = append(e.retValues, elm.retValues...)
-			if len(elm.retValues) == 0 {
-				e.retValues = append(e.retValues, elm.AsValue())
+			e.values = append(e.values, elm.values...)
+			if len(elm.values) == 0 {
+				e.values = append(e.values, elm.AsValue())
 			}
 		}
 		s.readExpression(typeHint, endTok) // scan endTok
@@ -429,7 +427,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 		e.exp = varValue(exp)
 		if fields := s.fields(e.retTypes[0], exp); len(fields) > 1 {
 			for _, f := range fields {
-				e.retValues = append(e.retValues, `"`+varValue(varName(f.Name))+`"`)
+				e.values = append(e.values, `"`+varValue(varName(f.Name))+`"`)
 			}
 		}
 	} else if isString && typeHint == "bool" {
@@ -454,19 +452,10 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 		typ = s.readType(false)
 	}
 	e := s.readExpression(typ, 0)
-	v := e.AsValue()
-	primaryIndex := -1
 	statusIndex := -1
 	for i, name := range names {
-		vn := RetVarName(e.retTypes, i)
-		if e.typ == "FUNC" && len(e.retTypes) > i && len(s.fields(e.retTypes[i], "")) > 1 {
-			vn = "_tmp" + fmt.Sprint(i)
-		}
-
-		if vn == "?" {
+		if name != "_" && RetVarName(e.retTypes, i) == "?" {
 			statusIndex = i
-		} else if e.retVar != name && vn == "" {
-			primaryIndex = i
 		}
 		if typ != "" {
 			s.vars[name] = typ
@@ -483,52 +472,48 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 			s.vars[name] = "int"
 		}
 	}
-	writeAssign := func(i int) {
+	writeAssign := func(i int, v, vn string) {
 		local := decrare && s.funcName != ""
 		for vi, field := range s.fields(s.vars[names[i]], "") {
 			if field.Name != "" {
 				s.vars[names[i]+field.Name] = field.Type
 			}
 			name := varName(names[i] + field.Name)
-			vn := RetVarName(e.retTypes, i)
-			if e.typ == "FUNC" && len(e.retTypes) > i && len(s.fields(e.retTypes[i], "")) > 1 {
-				vn = varName("_tmp" + fmt.Sprint(i) + field.Name)
-			}
-			if local && name != "_" {
+			if local {
 				s.WriteString("local ")
 				if readonly {
 					s.WriteString("-r ")
 				}
 			}
-			tv := v
-			if i == primaryIndex && s.vars[name].IsArray() {
-				tv = "(" + strings.Join(e.retValues, " ") + v + ")"
-			} else if i == primaryIndex && len(e.retValues) > vi {
-				tv = e.retValues[vi]
-			}
-			if i == primaryIndex && tv != "" {
+			if vn != "" {
+				s.Writeln(name + "=\"$" + varName(vn+field.Name) + "\"")
+			} else if i == e.primaryIdx && (local || v != "" || len(e.values) > vi) {
 				if local && statusIndex >= 0 {
 					s.Writeln(name) // to avoid 'local' modify status code
 				}
+				tv := v
+				if field.Type.IsArray() {
+					tv = "(" + strings.Join(e.values, " ") + v + ")"
+				} else if len(e.values) > vi {
+					tv = e.values[vi]
+				} else if tv == "" && field.Type == "int" {
+					tv = "0"
+				}
 				s.Writeln(name + "=" + tv)
-			} else if vn != "" && name != e.retVar && name != "_" {
-				s.Writeln(name + "=\"$" + vn + "\"")
-			} else if local && name != "_" {
-				s.Writeln(name)
 			}
 		}
 	}
-	if primaryIndex >= 0 {
-		writeAssign(primaryIndex)
-	} else {
+	if v := e.AsValue(); e.primaryIdx >= 0 {
+		writeAssign(e.primaryIdx, v, "")
+	} else if v != "" {
 		s.Writeln(e.AsExec())
 	}
 	if statusIndex >= 0 {
-		writeAssign(statusIndex)
+		writeAssign(statusIndex, "", "?")
 	}
-	for i := range names {
-		if i != primaryIndex && i != statusIndex {
-			writeAssign(i)
+	for i, name := range names {
+		if i != e.primaryIdx && i != statusIndex && name != "_" && name != e.retVar {
+			writeAssign(i, "", RetVarName(e.retTypes, i))
 		}
 	}
 }
@@ -542,21 +527,21 @@ func (s *state) procReturn() {
 			status = e
 		} else if fields := s.fields(t, ""); len(fields) > 1 {
 			for vi, field := range fields {
-				if len(e.retValues) > vi {
-					s.WriteString(varName("_tmp"+fmt.Sprint(i)+field.Name) + "=" + e.retValues[vi] + ";")
+				if len(e.values) > vi {
+					s.WriteString(varName("_tmp"+fmt.Sprint(i)+field.Name) + "=" + e.values[vi] + "; ")
 				}
 			}
-		} else if vn := RetVarName(s.funcs[s.funcName].retTypes, i); vn != "" {
-			s.WriteString(vn + "=" + e.AsValue() + ";")
+		} else if i == s.funcs[s.funcName].primaryIdx {
+			s.WriteString("echo " + e.AsValue() + "; ")
 		} else {
-			s.WriteString("echo " + e.AsValue() + ";")
+			s.WriteString(RetVarName(s.funcs[s.funcName].retTypes, i) + "=" + e.AsValue() + "; ")
 		}
 		if s.lastToken != ',' {
 			break
 		}
 	}
 	if status != nil {
-		s.Writeln("return ", status.AsValue())
+		s.Writeln("return", status.AsValue())
 	} else {
 		s.Writeln("return")
 	}
@@ -594,9 +579,14 @@ func (s *state) procFunc() {
 		}
 	}
 	s.Scan() // '(' or '{' or Ident
-	var retTypes []Type
+	f := shFunc{exp: name, primaryIdx: -1}
 	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
-		retTypes = append(retTypes, s.readType(s.lastToken != '(' && s.lastToken != ','))
+		t := s.readType(s.lastToken != '(' && s.lastToken != ',')
+		if f.primaryIdx < 0 && (t != "StatusCode" && t != "TempVarString" && len(s.fields(t, "")) == 1) {
+			f.primaryIdx = len(f.retTypes)
+			f.stdout = true
+		}
+		f.retTypes = append(f.retTypes, t)
 		s.Scan() // , or ')' or '{'
 	}
 	for ; s.lastToken != '{' && s.lastToken != scanner.EOF; s.Scan() {
@@ -613,7 +603,6 @@ func (s *state) procFunc() {
 			}
 		}
 	}
-	f := shFunc{exp: name, retTypes: retTypes, stdout: len(retTypes) > 0 && retTypes[0] != "StatusCode" && retTypes[0] != "TempVarString"}
 	s.funcs[name] = f
 	if n, found := strings.CutPrefix(name, "GOTOSH_FUNC_"); found {
 		s.funcs[strings.ReplaceAll(n, "_", ".")] = f
@@ -646,7 +635,7 @@ func (s *state) procFor() {
 	s.Writeln("while " + cond + "; do :")
 	end := "done"
 	if f[2].AsExec() != "" {
-		end = "let \"" + f[2].AsExec() + "\"; done" // TODO continue...
+		end = ": $(( " + f[2].AsExec() + ")); done" // TODO continue...
 	}
 	s.cl = append(s.cl, end)
 }
@@ -680,14 +669,15 @@ func (s *state) procSentense() {
 		s.procAssign(names, false, false)
 	} else if tok == '(' {
 		s.Writeln(s.readFuncCall(names[0], false).AsExec())
-	} else if tok == '+' || tok == '-' || tok == '*' || tok == '/' || tok == '%' {
+
+	} else if strings.ContainsRune("+-*/%&|^", tok) {
 		op := s.TokenText()
 		tok = s.Scan()
 		op += s.TokenText()
 		if tok == '=' {
 			op += s.readExpression("int", 0).AsValue()
 		}
-		s.Writeln("let " + varName(names[0]) + op)
+		s.Writeln(": $((" + varName(names[0]) + op + "))")
 	} else {
 		fmt.Printf("# Unknown token %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
 	}
