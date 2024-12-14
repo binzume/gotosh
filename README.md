@@ -144,9 +144,10 @@ Constatns:
 - os.Stdin
 - os.Stdout
 - os.Stderr
-- runtime.Compiler // "gotosh" になっているのでシェルスクリプト専用の処理への切り替えに使えます
+- runtime.Compiler // "gotosh" になっています
 - runtime.GOARCH
 - runtime.GOOS
+- shell.IsShellScript // トランスパイル後はtrueになるので、シェルスクリプト専用の処理への切り替えに使えます
 
 `GOTOSH_FUNC_` プレフィックスが付いた関数を定義することで、任意のパッケージの関数を実装することができます。 (以下は `strings.Index()` を実装する例。内部の実装用なので後で変わる可能性が高いです)
 

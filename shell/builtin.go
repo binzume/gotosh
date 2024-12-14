@@ -14,6 +14,8 @@ type TempVarString = string
 
 var IFS = " \t\n"
 
+var IsShellScript = false
+
 func Exec(name string, args ...string) (string, StatusCode) {
 	out, err := exec.Command(name, args...).Output()
 	if err != nil {

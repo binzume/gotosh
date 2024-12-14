@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"strconv"
 
 	"github.com/binzume/gotosh/shell"
@@ -26,7 +25,7 @@ func main() {
 		return
 	}
 	go routine1(w)
-	if runtime.Compiler == "gotosh" {
+	if shell.IsShellScript {
 		// Workaroud: the fd shoud be closed from both processes
 		w.Close()
 	}
