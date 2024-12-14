@@ -10,7 +10,10 @@ import (
 )
 
 func trimQuote(s string) string {
-	return strings.Trim(s, "\"`'")
+	if len(s) >= 2 && s[0] == '\'' {
+		return strings.ReplaceAll(s[1:len(s)-2], "\\'", "'")
+	}
+	return strings.Trim(s, "\"`") // TODO: unescape
 }
 
 func varName(s string) string {
@@ -132,6 +135,7 @@ func newState() *state {
 		"bash.Arg":        {exp: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true},
 		"bash.NArgs":      {exp: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
 		"bash.UnixTimeMs": {exp: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []Type{"int"}, stdout: true},
+		"bash.Do":         {convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
 		// fmt
 		"fmt.Print":   {exp: "echo -n"},
 		"fmt.Println": {exp: "echo"},

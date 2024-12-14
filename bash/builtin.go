@@ -63,6 +63,10 @@ func NArgs() int {
 	return len(os.Args)
 }
 
+func Do(rawScript string) {
+	// Do nothing in Go
+}
+
 // TODO: coreutil.Sleep
 func Sleep(t float32) {
 	time.Sleep(time.Duration(t*1000) * time.Millisecond)
