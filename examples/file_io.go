@@ -14,7 +14,8 @@ func printLine(n int, s string) {
 func main() {
 	fname := "file_test.txt"
 	w, err := os.Create(fname)
-	w.WriteString("This is a test file.\n")
+	fmt.Fprint(w, "This is ")
+	fmt.Fprintln(w, "a test file.")
 	w.WriteString("Hello,")
 	w.WriteString("world!\n")
 	w.Close()

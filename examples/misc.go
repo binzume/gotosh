@@ -60,7 +60,7 @@ type Date struct {
 	Day   int
 }
 type Person struct {
-	Name     string
+	Name     string `tag:"aa"`
 	Age      int
 	Birthday Date
 }
