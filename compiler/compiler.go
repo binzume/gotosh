@@ -10,7 +10,7 @@ import (
 )
 
 func trimQuote(s string) string {
-	return strings.Trim(s, "\"`")
+	return strings.Trim(s, "\"`'")
 }
 
 func varName(s string) string {
@@ -140,7 +140,10 @@ func newState() *state {
 		"fmt.Sprintln": {retTypes: []Type{"string"}, convFunc: func(arg []string) string {
 			return "$(echo " + strings.Join(arg, " ") + ")$'\\n'"
 		}},
-		"fmt.Sprintf": {exp: "printf", retTypes: []Type{"string"}, stdout: true},
+		"fmt.Sprintf":  {exp: "printf", retTypes: []Type{"string"}, stdout: true},
+		"fmt.Fprint":   {convFunc: func(arg []string) string { return "echo -n " + strings.Join(arg[1:], " ") + " >&" + arg[0] }},
+		"fmt.Fprintln": {convFunc: func(arg []string) string { return "echo " + strings.Join(arg[1:], " ") + " >&" + arg[0] }},
+		"fmt.Fprintf":  {convFunc: func(arg []string) string { return "printf " + strings.Join(arg[1:], " ") + " >&" + arg[0] }},
 		// strings
 		"strings.ReplaceAll": {exp: "\"${{*0}//{1}/{2}}\"", retTypes: []Type{"string"}},
 		"strings.ToUpper":    {exp: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []Type{"string"}, stdout: true},
@@ -157,6 +160,7 @@ func newState() *state {
 		// os
 		"os.Stdin":    {exp: "0", retTypes: []Type{"*os.File"}}, // variable
 		"os.Stdout":   {exp: "1", retTypes: []Type{"*os.File"}}, // variable
+		"os.Stderr":   {exp: "1", retTypes: []Type{"*os.File"}}, // variable
 		"os.Exit":     {exp: "exit"},
 		"os.Getwd":    {exp: "pwd", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"os.Chdir":    {exp: "cd", retTypes: []Type{"StatusCode"}, stdout: true},
@@ -181,10 +185,8 @@ func newState() *state {
 		"os.Remove":            {exp: "rm -f", retTypes: []Type{"StatusCode"}},
 		"os.RemoveAll":         {exp: "rm -rf", retTypes: []Type{"StatusCode"}},
 		"os.Rename":            {exp: "mv", retTypes: []Type{"StatusCode"}},
-		"os.File__WriteString": {exp: `echo -n {1}>&{0}`},
+		"os.File__WriteString": {exp: `echo -n {1} >&{0}`},
 		"os.File__Close":       {exp: `eval "exec {0}<&- {0}>&-"`},
-		"io.Reader__Close":     {exp: `eval "exec {0}<&- {0}>&-"`},
-		"io.Writer__Close":     {exp: `eval "exec {0}<&- {0}>&-"`},
 		"exec.Command":         {exp: "echo -n ", retTypes: []Type{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
 		"exec.Cmd__Output":     {exp: "bash -c", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"reflect.TypeOf":       {retTypes: []Type{"string"}, convFunc: func(arg []string) string { return `"` + string(s.vars[varName(arg[0])]) + `"` }},
@@ -441,7 +443,8 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 		} else if isString && tok == '+' || tok == ':' {
 			continue
 		}
-		isString = isString || tok == scanner.String
+		l = s.Line
+		isString = isString || tok == scanner.String || tok == scanner.RawString
 		t := s.TokenText()
 		if (t == "=" || t == "!") && s.Peek() == '=' {
 			s.Scan()
@@ -451,9 +454,9 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 
 		if tok == scanner.String {
 			t = escapeShellString(t)
-		}
-		l = s.Line
-		if tok == scanner.Ident {
+		} else if tok == scanner.RawString {
+			t = "'" + strings.ReplaceAll(strings.Trim(t, "`"), "'", "\\'") + "'"
+		} else if tok == scanner.Ident {
 			t = s.readName()
 			if s.lastToken != '(' && s.lastToken != '[' {
 				s.skipNextScan = true
@@ -495,13 +498,13 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 		exp += t
 		tokens++
 	}
-	s.skipNextScan = s.skipNextScan || s.Line != l
+	s.skipNextScan = s.skipNextScan || (endTok == 0 && s.Line != l)
 	if funcRet != nil && exp == funcRet.AsValue() {
 		return funcRet
 	}
 	e := &shExpression{exp: exp, retTypes: []Type{"any"}}
 	if exp == lastVar {
-		e.retTypes = []Type{s.vars[strings.ReplaceAll(exp, "__", ".")]} // TODO
+		e.retTypes = []Type{s.vars[strings.ReplaceAll(strings.TrimSuffix(exp, "[@]"), "__", ".")]} // TODO
 		e.exp = varValue(exp)
 		if fields := s.fields(e.retTypes[0], exp); len(fields) > 1 {
 			for _, f := range fields {
@@ -524,11 +527,10 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 
 func (s *state) procAssign(names []string, decrare, readonly bool) {
 	var typ Type
-	if len(names) == 0 {
+	if len(names) == 0 { // var or const
 		s.Scan()
-		name := s.TokenText()
+		names = append(names, s.TokenText())
 		typ = s.readType(false)
-		names = append(names, name)
 	}
 	e := s.readExpression(typ, 0)
 	v := e.AsValue()
