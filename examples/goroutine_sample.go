@@ -6,12 +6,12 @@ import (
 	"runtime"
 	"strconv"
 
-	"github.com/binzume/gotosh/bash"
+	"github.com/binzume/gotosh/shell"
 )
 
 func routine1(w *os.File) {
 	for i := 0; i < 6; i++ {
-		bash.Sleep(0.5)
+		shell.Sleep(0.5)
 		fmt.Println("write", i)
 		w.WriteString("data" + strconv.Itoa(i) + "\n")
 	}
@@ -33,7 +33,7 @@ func main() {
 
 	fmt.Println("Waiting...")
 	for {
-		ret, err := bash.ReadLine(r)
+		ret, err := shell.ReadLine(r)
 		if err != 0 {
 			break
 		}

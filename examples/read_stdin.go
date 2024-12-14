@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 
-	"github.com/binzume/gotosh/bash"
+	"github.com/binzume/gotosh/shell"
 )
 
 func printLine(n int, s string) {
@@ -12,7 +12,7 @@ func printLine(n int, s string) {
 
 func main() {
 	for i := 1; ; i++ {
-		s, status := bash.Read()
+		s, status := shell.Read()
 		if status != 0 {
 			break
 		}

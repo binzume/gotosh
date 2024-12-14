@@ -16,7 +16,7 @@ Supported:
 TODO:
 
 - jq, curl support
-- Convert bash/compiler.go to compiler.sh
+- Convert compiler/compiler.go to compiler.sh
 
 # Usage
 
@@ -89,14 +89,14 @@ main "${@}"
 
 ## Supported functions
 
-- [bash.*](bash/builtin.go)
-- [bash.NArg](bash/builtin.go)
-- [bash.Arg](bash/builtin.go)
-- [bash.Exec](bash/builtin.go)
-- [bash.Do](bash/builtin.go)
-- [bash.ReadLine](bash/builtin.go)
-- [bash.Sleep](bash/builtin.go)
-- [bash.UnixTimeMs](bash/builtin.go)
+- [shell.*](shell/builtin.go)
+- [shell.NArg](shell/builtin.go)
+- [shell.Arg](shell/builtin.go)
+- [shell.Exec](shell/builtin.go)
+- [shell.Do](shell/builtin.go)
+- [shell.ReadLine](shell/builtin.go)
+- [shell.Sleep](shell/builtin.go)
+- [shell.UnixTimeMs](shell/builtin.go)
 - [fmt.Print](https://pkg.go.dev/fmt#Print)
 - [fmt.Println](https://pkg.go.dev/fmt#Println)
 - [fmt.Printf](https://pkg.go.dev/fmt#Printf)
@@ -180,7 +180,7 @@ Goの文法をすべてサポートすることは目指していないので、
 ## 型
 
 - 利用可能な型は、`int`, `string`, `[]int`, `[]string` のみです
-- 定数の場合のみ`float` 等を扱えます(例： `bash.Sleep(0.1)` は有効)
+- 定数の場合のみ`float` 等を扱えます(例： `shell.Sleep(0.1)` は有効)
 - ポインタは無いのですべての値渡しです
 
 ### struct
@@ -231,8 +231,8 @@ sliceなども含めて全ての値は値渡しです。
 関数の結果は標準出力として返します。なので基本的に値を返す関数の内部で標準出力に何かを出力することはできません。
 標準出力以外で値を返すことを強制したい場合は以下の型(type alias)が使えます。(名前しか見てないので同名のtypeを定義しても動作します)
 
-- `bash.TempVarString` (= string) は _tmpN 変数を使って値を返します。複数の値を返す必要がある場合に使います
-- `bash.StatusCode` (= byte) は関数の終了コードとして返します
+- `shell.TempVarString` (= string) は _tmpN 変数を使って値を返します。複数の値を返す必要がある場合に使います
+- `shell.StatusCode` (= byte) は関数の終了コードとして返します
 
 多値の戻り値は以下の組み合わせに対応しています。
 

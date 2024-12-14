@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/binzume/gotosh/bash"
+	"github.com/binzume/gotosh/shell"
 )
 
 func testFunc(x, y int, z string) {
@@ -21,16 +21,16 @@ func concatStr(x, y string) string {
 	return x + y
 }
 
-func addInt2(x, y int) bash.StatusCode {
+func addInt2(x, y int) shell.StatusCode {
 	fmt.Println("adding", x, "and", y)
-	return bash.StatusCode(x + y)
+	return shell.StatusCode(x + y)
 }
 
-func returnStringAndStatus() (string, bash.StatusCode) {
+func returnStringAndStatus() (string, shell.StatusCode) {
 	return "aaa", 123
 }
 
-// Same as bash.StatusCode
+// Same as shell.StatusCode
 type StatusCode = int8
 
 // Implements strings.Index()
@@ -49,7 +49,7 @@ func returnStringAndStatus2() (StatusCode, string) {
 	return 111, "bbb"
 }
 
-func returnStringMulti() (bash.TempVarString, bash.TempVarString, bash.TempVarString) {
+func returnStringMulti() (shell.TempVarString, shell.TempVarString, shell.TempVarString) {
 	return "abc", "def", "ghi"
 }
 
@@ -77,8 +77,8 @@ func (a Person) Hello() {
 
 func main() {
 	//  args
-	for i := 1; i < bash.NArgs(); i++ {
-		fmt.Println("arg", i, bash.Arg(i))
+	for i := 1; i < shell.NArgs(); i++ {
+		fmt.Println("arg", i, shell.Arg(i))
 	}
 
 	// func call

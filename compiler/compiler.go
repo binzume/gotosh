@@ -125,17 +125,17 @@ func newState() *state {
 	s.vars = map[string]Type{}
 	s.types = map[Type]Type{}
 	s.funcs = map[string]shFunc{
-		"bash.Sleep":      {exp: "sleep"},
-		"bash.Exit":       {exp: "exit"},
-		"bash.Export":     {exp: "export"},
-		"bash.Exec":       {retTypes: []Type{"string", "StatusCode"}, stdout: true},
-		"bash.Read":       {exp: `IFS= read -r -s _tmp0`, retTypes: []Type{"TempVarString", "StatusCode"}},
-		"bash.ReadLine":   {exp: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []Type{"TempVarString", "StatusCode"}},
-		"bash.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []Type{"string"}},
-		"bash.Arg":        {exp: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true},
-		"bash.NArgs":      {exp: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
-		"bash.UnixTimeMs": {exp: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []Type{"int"}, stdout: true},
-		"bash.Do":         {convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
+		"shell.Sleep":      {exp: "sleep"},
+		"shell.Exit":       {exp: "exit"},
+		"shell.Export":     {exp: "export"},
+		"shell.Exec":       {retTypes: []Type{"string", "StatusCode"}, stdout: true},
+		"shell.Read":       {exp: `IFS= read -r -s _tmp0`, retTypes: []Type{"TempVarString", "StatusCode"}},
+		"shell.ReadLine":   {exp: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []Type{"TempVarString", "StatusCode"}},
+		"shell.SubStr":     {exp: "\"${{*0}:{1}:{2}}\"", retTypes: []Type{"string"}},
+		"shell.Arg":        {exp: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true},
+		"shell.NArgs":      {exp: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
+		"shell.UnixTimeMs": {exp: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []Type{"int"}, stdout: true},
+		"shell.Do":         {convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
 		// fmt
 		"fmt.Print":   {exp: "echo -n"},
 		"fmt.Println": {exp: "echo"},
@@ -198,12 +198,12 @@ func newState() *state {
 		"runtime.GOARCH":       {exp: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
 		"runtime.GOOS":         {exp: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
 		// TODO: cast
-		"int":             {retTypes: []Type{"int"}},
-		"byte":            {retTypes: []Type{"int"}},
-		"string":          {retTypes: []Type{"string"}},
-		"strconv.Atoi":    {retTypes: []Type{"int", "StatusCode"}},
-		"strconv.Itoa":    {retTypes: []Type{"string"}},
-		"bash.StatusCode": {retTypes: []Type{"int"}},
+		"int":              {retTypes: []Type{"int"}},
+		"byte":             {retTypes: []Type{"int"}},
+		"string":           {retTypes: []Type{"string"}},
+		"strconv.Atoi":     {retTypes: []Type{"int", "StatusCode"}},
+		"strconv.Itoa":     {retTypes: []Type{"string"}},
+		"shell.StatusCode": {retTypes: []Type{"int"}},
 		// slice
 		"len": {retTypes: []Type{"int"}, convFunc: func(arg []string) string { return "${#" + strings.Trim(trimQuote(arg[0]), "${}") + "}" }},
 		"append": {retTypes: []Type{"_ARG1"},
@@ -329,7 +329,7 @@ func (s *state) readType(scaned bool) Type {
 		t += s.TokenText()
 		t += string(s.readType(false))
 	}
-	return Type(strings.TrimPrefix(t, "bash."))
+	return Type(strings.TrimPrefix(t, "shell."))
 }
 
 func (s *state) fields(t Type, name string) []TypedName {
