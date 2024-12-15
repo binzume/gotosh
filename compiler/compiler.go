@@ -359,7 +359,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 				exp += funcRet.AsValue()
 			}
 			continue
-		} else if isString && tok == '+' || tok == ':' {
+		} else if isString && tok == '+' {
 			continue
 		}
 		l = s.Line
@@ -444,11 +444,14 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 	return e
 }
 
-func (s *state) procAssign(names []string, decrare, readonly bool) {
+func (s *state) procAssign(names []string, declare, readonly bool) {
 	var typ Type
 	if len(names) == 0 { // var or const
-		s.Scan()
-		names = append(names, s.TokenText())
+		for ; len(names) == 0 || s.lastToken == ','; s.Scan() {
+			s.Scan()
+			names = append(names, s.TokenText())
+		}
+		s.skipNextScan = true
 		typ = s.readType(false)
 	}
 	e := s.readExpression(typ, 0)
@@ -459,7 +462,7 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 		}
 		if typ != "" {
 			s.vars[name] = typ
-		} else if decrare || s.vars[name] == "" {
+		} else if declare || s.vars[name] == "" {
 			if len(e.retTypes) > i && e.retTypes[i] != "" {
 				s.vars[name] = e.retTypes[i]
 			} else {
@@ -473,7 +476,7 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 		}
 	}
 	writeAssign := func(i int, v, vn string) {
-		local := decrare && s.funcName != ""
+		local := declare && s.funcName != ""
 		for vi, field := range s.fields(s.vars[names[i]], "") {
 			if field.Name != "" {
 				s.vars[names[i]+field.Name] = field.Type
@@ -485,9 +488,9 @@ func (s *state) procAssign(names []string, decrare, readonly bool) {
 					s.WriteString("-r ")
 				}
 			}
-			if vn != "" {
+			if vn != "" && len(e.retTypes) > i {
 				s.Writeln(name + "=\"$" + varName(vn+field.Name) + "\"")
-			} else if i == e.primaryIdx && (local || v != "" || len(e.values) > vi) {
+			} else if local || v != "" || len(e.values) > vi {
 				if local && statusIndex >= 0 {
 					s.Writeln(name) // to avoid 'local' modify status code
 				}
@@ -625,7 +628,11 @@ func (s *state) procFor() {
 
 	condIdx := 0
 	if n > 1 {
-		s.Writeln(f[0].AsExec())
+		if init := strings.Split(f[0].AsExec(), ":="); len(init) == 1 {
+			s.Writeln(init[0])
+		} else {
+			s.Writeln("local " + init[0] + "=" + init[1])
+		}
 		condIdx = 1
 	}
 	cond := "true"
@@ -635,7 +642,7 @@ func (s *state) procFor() {
 	s.Writeln("while " + cond + "; do :")
 	end := "done"
 	if f[2].AsExec() != "" {
-		end = ": $(( " + f[2].AsExec() + ")); done" // TODO continue...
+		end = ": $(( " + f[2].AsExec() + " )); done" // TODO continue...
 	}
 	s.cl = append(s.cl, end)
 }
