@@ -251,7 +251,7 @@ func (s *state) fields(t Type, name string) []TypedName {
 		t = s.types[t]
 	}
 	f := strings.Split(string(t), ":")
-	if len(f) < 4 {
+	if len(f) == 1 {
 		return []TypedName{{name, t}}
 	}
 	var ret []TypedName
@@ -290,7 +290,7 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 			if i == e.primaryIdx && len(e.values) > 0 {
 				args = append(args, e.values...)
 			} else if i == 0 {
-				if fields := s.fields(t, ""); fields[0].Name != "" {
+				if fields := s.fields(t, ""); len(fields) == 0 || fields[0].Name != "" {
 					for _, field := range fields {
 						args = append(args, `"$`+varName(e.AsValue()+field.Name)+`"`)
 					}
@@ -332,7 +332,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 	if s.lastToken == '=' {
 		s.Scan()
 	}
-	if s.lastToken == '[' || s.lastToken == scanner.Ident && s.vars[s.TokenText()] == "" && s.types[Type(s.TokenText())] != "" {
+	if s.lastToken == '[' || s.TokenText() == "struct" || s.lastToken == scanner.Ident && s.vars[s.TokenText()] == "" && s.types[Type(s.TokenText())] != "" {
 		e := &shExpression{retTypes: []Type{s.readType(true)}}
 		s.Scan() // {
 		for s.lastToken != scanner.EOF && s.lastToken != '}' {
@@ -434,9 +434,9 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 	} else if lastVar != "" && exp == lastVar {
 		e.retTypes = []Type{s.vars[strings.ReplaceAll(strings.TrimSuffix(exp, "[@]"), "__", ".")]} // TODO
 		e.exp = varValue(exp)
-		if fields := s.fields(e.retTypes[0], exp); len(fields) > 1 {
+		if fields := s.fields(e.retTypes[0], ""); len(fields) > 0 && fields[0].Name != "" {
 			for _, f := range fields {
-				e.values = append(e.values, `"`+varValue(varName(f.Name))+`"`)
+				e.values = append(e.values, `"`+varValue(varName(exp+f.Name))+`"`)
 			}
 		}
 	} else if expressionType == "string" && typeHint == "bool" {
@@ -530,17 +530,21 @@ func (s *state) procReturn() {
 	var status *shExpression
 	for i, t := range s.funcs[s.funcName].retTypes {
 		e := s.readExpression("", 0)
-
-		if t == "StatusCode" {
+		if len(e.retTypes) == len(s.funcs[s.funcName].retTypes) && (len(e.retTypes) >= 2 || e.stdout) {
+			s.Writeln(e.exp + "; return $?")
+			return
+		} else if t == "StatusCode" {
 			status = e
-		} else if fields := s.fields(t, ""); len(fields) > 1 {
-			for vi, field := range fields {
-				if len(e.values) > vi {
-					s.WriteString(varName("_tmp"+fmt.Sprint(i)+field.Name) + "=" + e.values[vi] + "; ")
-				}
-			}
 		} else if i == s.funcs[s.funcName].primaryIdx {
-			s.WriteString("echo " + e.AsValue() + "; ")
+			if len(e.values) > 0 {
+				s.WriteString("echo " + e.values[0] + "; ")
+			} else {
+				s.WriteString("echo " + e.AsValue() + "; ")
+			}
+		} else if fields := s.fields(t, ""); len(fields) == len(e.values) {
+			for vi, field := range fields {
+				s.WriteString(varName("_tmp"+fmt.Sprint(i)+field.Name) + "=" + e.values[vi] + "; ")
+			}
 		} else {
 			s.WriteString(RetVarName(s.funcs[s.funcName].retTypes, i) + "=" + e.AsValue() + "; ")
 		}
@@ -588,13 +592,10 @@ func (s *state) procFunc() {
 	}
 	s.Scan() // '(' or '{' or Ident
 	f := shFunc{exp: name, primaryIdx: -1}
-	statusIndex := -1
 	stdoutIndex := -1
 	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
 		t := s.readType(s.lastToken != '(' && s.lastToken != ',')
-		if t == "StatusCode" {
-			statusIndex = len(f.retTypes)
-		} else if t != "TempVarString" && len(s.fields(t, "")) == 1 {
+		if t != "StatusCode" && t != "TempVarString" && len(s.fields(t, "")) == 1 {
 			stdoutIndex = len(f.retTypes)
 		}
 		f.retTypes = append(f.retTypes, t)
@@ -602,7 +603,8 @@ func (s *state) procFunc() {
 	}
 	for ; s.lastToken != '{' && s.lastToken != scanner.EOF; s.Scan() {
 	}
-	if stdoutIndex >= 0 && (len(f.retTypes) == 1 || len(f.retTypes) == 2 && statusIndex >= 0) {
+	if stdoutIndex >= 0 && (len(f.retTypes) == 1 ||
+		len(f.retTypes) == 2 && (f.retTypes[0] == "StatusCode" || f.retTypes[1] == "StatusCode")) {
 		f.primaryIdx = stdoutIndex
 		f.stdout = true
 	}
