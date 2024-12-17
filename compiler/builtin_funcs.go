@@ -81,9 +81,16 @@ var InitBuiltInFuncs = func(s *state) {
 		"runtime.Compiler":     {exp: "'gotosh'", retTypes: []Type{"string"}},               // constant
 		"runtime.GOARCH":       {exp: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
 		"runtime.GOOS":         {exp: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
+		//
+		"math.Sqrt": {exp: `echo "scale=10;sqrt({0})" | bc`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Sin":  {exp: `echo "scale=10;s({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Cos":  {exp: `echo "scale=10;c({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Atan": {exp: `echo "scale=10;a({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Exp":  {exp: `echo "scale=10;e({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
 		// TODO: cast
 		"int":              {exp: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true},
 		"byte":             {retTypes: []Type{"int"}},
+		"float32":          {retTypes: []Type{"float32"}},
 		"string":           {retTypes: []Type{"string"}},
 		"strconv.Atoi":     {retTypes: []Type{"int", "StatusCode"}},
 		"strconv.Itoa":     {retTypes: []Type{"string"}},
