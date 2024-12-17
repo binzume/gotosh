@@ -62,7 +62,7 @@ type shExpression struct {
 func (f *shExpression) AsValue() string {
 	exp := strings.TrimSpace(f.exp)
 	if f.typ == "FLOAT_EXP" {
-		exp = `$(echo "scale=10;` + exp + `" | bc)`
+		exp = `$(echo "scale=16;` + exp + `" | bc)`
 	} else if f.typ == "INT_EXP" {
 		exp = "$(( " + exp + " ))"
 	} else if f.typ == "STR_CMP" {

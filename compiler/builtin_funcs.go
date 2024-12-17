@@ -81,12 +81,17 @@ var InitBuiltInFuncs = func(s *state) {
 		"runtime.Compiler":     {exp: "'gotosh'", retTypes: []Type{"string"}},               // constant
 		"runtime.GOARCH":       {exp: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
 		"runtime.GOOS":         {exp: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
-		//
-		"math.Sqrt": {exp: `echo "scale=10;sqrt({0})" | bc`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Sin":  {exp: `echo "scale=10;s({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Cos":  {exp: `echo "scale=10;c({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Atan": {exp: `echo "scale=10;a({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Exp":  {exp: `echo "scale=10;e({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		// math (using bc)
+		"math.Pi":   {exp: `3.141592653589793`, retTypes: []Type{"float32"}}, // constant
+		"math.E":    {exp: `2.718281828459045`, retTypes: []Type{"float32"}}, // constant
+		"math.Sqrt": {exp: `echo "scale=16;sqrt({0})" | bc`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Pow":  {exp: `echo "scale=16;e(l({0})*{1})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Exp":  {exp: `echo "scale=16;e({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Log":  {exp: `echo "scale=16;l({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Sin":  {exp: `echo "scale=16;s({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Cos":  {exp: `echo "scale=16;c({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Tan":  {exp: `echo "scale=16;s({0})/c({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Atan": {exp: `echo "scale=16;a({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
 		// TODO: cast
 		"int":              {exp: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true},
 		"byte":             {retTypes: []Type{"int"}},
