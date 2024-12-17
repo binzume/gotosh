@@ -82,7 +82,7 @@ var InitBuiltInFuncs = func(s *state) {
 		"runtime.GOARCH":       {exp: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
 		"runtime.GOOS":         {exp: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
 		// TODO: cast
-		"int":              {retTypes: []Type{"int"}},
+		"int":              {exp: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true},
 		"byte":             {retTypes: []Type{"int"}},
 		"string":           {retTypes: []Type{"string"}},
 		"strconv.Atoi":     {retTypes: []Type{"int", "StatusCode"}},

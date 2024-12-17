@@ -61,7 +61,9 @@ type shExpression struct {
 
 func (f *shExpression) AsValue() string {
 	exp := strings.TrimSpace(f.exp)
-	if f.typ == "INT_EXP" {
+	if f.typ == "FLOAT_EXP" {
+		exp = `$(echo "scale=10;` + exp + `" | bc)`
+	} else if f.typ == "INT_EXP" {
 		exp = "$(( " + exp + " ))"
 	} else if f.typ == "STR_CMP" {
 		exp = "$([[ " + exp + " ]] && echo 1 || echo 0)"
@@ -353,7 +355,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 			break
 		} else if tok == '(' {
 			funcRet = s.readExpression("", ')')
-			if expressionType != "string" && funcRet.typ == "INT_EXP" {
+			if expressionType != "string" && (funcRet.typ == "INT_EXP" || funcRet.typ == "FLOAT_EXP") {
 				exp += "(" + funcRet.exp + ")"
 			} else {
 				exp += funcRet.AsValue()
@@ -363,7 +365,9 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 		l = s.Line
 		t := s.TokenText()
 
-		if tok == scanner.String {
+		if tok == scanner.Float {
+			expressionType = "float32"
+		} else if tok == scanner.String {
 			expressionType = "string"
 			t = escapeShellString(t)
 		} else if tok == scanner.RawString {
@@ -407,6 +411,8 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 				}
 			} else if expressionType == "string" {
 				t = "\"" + varValue(t) + "\""
+			} else if expressionType == "float32" {
+				t = varValue(t)
 			}
 		} else if strings.Contains("=!<>", t) && s.Peek() == '=' {
 			s.Scan()
@@ -435,6 +441,8 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 		}
 	} else if expressionType == "string" && typeHint == "bool" {
 		e.typ = "STR_CMP"
+	} else if tokens > 1 && expressionType == "float32" {
+		e.typ = "FLOAT_EXP"
 	} else if tokens > 1 && expressionType != "string" {
 		e.typ = "INT_EXP"
 	}

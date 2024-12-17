@@ -112,4 +112,9 @@ func main() {
 	if (("") == "a") || (1+1 == 2) {
 		fmt.Println("true")
 	}
+
+	// float
+	var a = 1.5 * 1.5
+	fmt.Println(a * 2.5 * 3)
+	fmt.Println(int(a))
 }
