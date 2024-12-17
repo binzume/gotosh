@@ -583,16 +583,23 @@ func (s *state) procFunc() {
 	}
 	s.Scan() // '(' or '{' or Ident
 	f := shFunc{exp: name, primaryIdx: -1}
+	statusIndex := -1
+	stdoutIndex := -1
 	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
 		t := s.readType(s.lastToken != '(' && s.lastToken != ',')
-		if f.primaryIdx < 0 && (t != "StatusCode" && t != "TempVarString" && len(s.fields(t, "")) == 1) {
-			f.primaryIdx = len(f.retTypes)
-			f.stdout = true
+		if t == "StatusCode" {
+			statusIndex = len(f.retTypes)
+		} else if t != "TempVarString" && len(s.fields(t, "")) == 1 {
+			stdoutIndex = len(f.retTypes)
 		}
 		f.retTypes = append(f.retTypes, t)
 		s.Scan() // , or ')' or '{'
 	}
 	for ; s.lastToken != '{' && s.lastToken != scanner.EOF; s.Scan() {
+	}
+	if stdoutIndex >= 0 && (len(f.retTypes) == 1 || len(f.retTypes) == 2 && statusIndex >= 0) {
+		f.primaryIdx = stdoutIndex
+		f.stdout = true
 	}
 
 	s.Writeln("function " + name + "() {")
