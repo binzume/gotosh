@@ -4,13 +4,19 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 )
 
-type StatusCode = byte
 type TempVarInt = int
 type TempVarString = string
+
+type StatusCode byte
+
+func (s StatusCode) Error() string {
+	return strconv.Itoa(int(s))
+}
 
 var IFS = " \t\n"
 
@@ -65,8 +71,9 @@ func NArgs() int {
 	return len(os.Args)
 }
 
-func Do(rawScript string) {
+func Do(rawScript string) StatusCode {
 	// Do nothing in Go
+	return 1
 }
 
 // TODO: coreutil.Sleep

@@ -17,7 +17,7 @@ var InitBuiltInFuncs = func(s *state) {
 		"shell.Arg":           {exp: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true},
 		"shell.NArgs":         {exp: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
 		"shell.UnixTimeMs":    {exp: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []Type{"int"}, stdout: true},
-		"shell.Do":            {convFunc: func(arg []string) string { return trimQuote(arg[0]) }},
+		"shell.Do":            {retTypes: []Type{"StatusCode"}, convFunc: func(arg []string) string { return trimQuote(arg[0]) }, primaryIdx: -1},
 		"shell.IsShellScript": {exp: "1", retTypes: []Type{"bool"}},
 		// fmt
 		"fmt.Print":   {exp: "echo -n"},
