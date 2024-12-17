@@ -42,7 +42,7 @@ var InitBuiltInFuncs = func(s *state) {
 			return "IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\""
 		}},
 		"strings.Join":     {exp: "IFS={1}; echo \"${{*0}[*]}\"", retTypes: []Type{"string"}, stdout: true},
-		"strings.Contains": {exp: "case {0} in *{1}* ) echo 1;; *) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true},
+		"strings.Contains": {exp: "case {0} in (*{1}*) echo 1;; (*) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true},
 		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []Type{"int"}, stdout: true},
 		// os
 		"os.Stdin":    {exp: "0", retTypes: []Type{"*os.File"}}, // variable
