@@ -56,7 +56,7 @@ type shExpression struct {
 	stdout     bool
 	retTypes   []Type
 	primaryIdx int
-	values     []string
+	values     []string // for array, slice, struct
 }
 
 func (f *shExpression) AsValue() string {
@@ -345,42 +345,38 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 	}
 	tokens := 0
 	var funcRet *shExpression
-	lastVar := "#"
-	var isString = typeHint == "string"
+	var lastVar string
+	var expressionType Type = typeHint
 	for ; s.lastToken != scanner.EOF && (endTok != 0 || s.Line == l); s.Scan() {
 		tok := s.lastToken
 		if tok == ')' || tok == endTok || tok == ',' || tok == ';' || tok == ']' || tok == '}' {
 			break
 		} else if tok == '(' {
 			funcRet = s.readExpression("", ')')
-			if !isString && funcRet.typ == "INT_EXP" {
+			if expressionType != "string" && funcRet.typ == "INT_EXP" {
 				exp += "(" + funcRet.exp + ")"
 			} else {
 				exp += funcRet.AsValue()
 			}
 			continue
-		} else if isString && tok == '+' {
-			continue
 		}
 		l = s.Line
-		isString = isString || tok == scanner.String || tok == scanner.RawString
 		t := s.TokenText()
-		if (t == "=" || t == "!") && s.Peek() == '=' {
-			s.Scan()
-			t = " " + t + "= "
-			typeHint = "bool"
-		}
 
 		if tok == scanner.String {
+			expressionType = "string"
 			t = escapeShellString(t)
 		} else if tok == scanner.RawString {
+			expressionType = "string"
 			t = "'" + strings.ReplaceAll(strings.Trim(t, "`"), "'", "\\'") + "'"
 		} else if tok == scanner.Ident {
 			t = s.readName()
 			if s.lastToken != '(' && s.lastToken != '[' {
 				s.skipNextScan = true
 			}
-			isString = isString || s.vars[t] == "string"
+			if s.vars[t] != "" {
+				expressionType = s.vars[t]
+			}
 			ot := t
 			t = varName(t)
 			if s.vars[ot].IsArray() {
@@ -406,23 +402,30 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 			if s.lastToken == '(' || s.funcs[ot].exp != "" {
 				funcRet = s.readFuncCall(ot, s.lastToken != '(')
 				t = funcRet.AsValue()
-				if len(funcRet.retTypes) > 0 && funcRet.retTypes[0] == "string" {
-					isString = true
+				if len(funcRet.retTypes) > 0 && funcRet.retTypes[0] != "" {
+					expressionType = funcRet.retTypes[0]
 				}
-				l = s.Line
-			} else if isString {
+			} else if expressionType == "string" {
 				t = "\"" + varValue(t) + "\""
 			}
+		} else if strings.Contains("=!<>", t) && s.Peek() == '=' {
+			s.Scan()
+			t = " " + t + "= "
+			typeHint = "bool"
+		} else if expressionType == "string" && tok == '+' {
+			t = ""
 		}
 		exp += t
 		tokens++
 	}
+	if typeHint == "" {
+		typeHint = expressionType
+	}
 	s.skipNextScan = s.skipNextScan || (endTok == 0 && s.Line != l)
+	e := &shExpression{exp: exp, retTypes: []Type{typeHint}}
 	if funcRet != nil && exp == funcRet.AsValue() {
 		return funcRet
-	}
-	e := &shExpression{exp: exp, retTypes: []Type{"any"}}
-	if exp == lastVar {
+	} else if lastVar != "" && exp == lastVar {
 		e.retTypes = []Type{s.vars[strings.ReplaceAll(strings.TrimSuffix(exp, "[@]"), "__", ".")]} // TODO
 		e.exp = varValue(exp)
 		if fields := s.fields(e.retTypes[0], exp); len(fields) > 1 {
@@ -430,16 +433,10 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 				e.values = append(e.values, `"`+varValue(varName(f.Name))+`"`)
 			}
 		}
-	} else if isString && typeHint == "bool" {
+	} else if expressionType == "string" && typeHint == "bool" {
 		e.typ = "STR_CMP"
-		e.retTypes = []Type{typeHint}
-	} else if tokens > 1 && !isString {
+	} else if tokens > 1 && expressionType != "string" {
 		e.typ = "INT_EXP"
-		e.retTypes = []Type{"int"}
-	} else if typeHint != "" {
-		e.retTypes = []Type{typeHint}
-	} else if isString {
-		e.retTypes = []Type{"string"}
 	}
 	return e
 }
