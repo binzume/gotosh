@@ -410,7 +410,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 				}
 			} else if expressionType == "string" {
 				t = "\"" + varValue(t) + "\""
-			} else if expressionType == "float32" {
+			} else if expressionType == "float32" || expressionType == "float64" {
 				t = varValue(t)
 			}
 		} else if strings.Contains("=!<>", t) && s.Peek() == '=' {
@@ -440,7 +440,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 		}
 	} else if expressionType == "string" && typeHint == "bool" {
 		e.typ = "STR_CMP"
-	} else if tokens > 1 && expressionType == "float32" {
+	} else if tokens > 1 && (expressionType == "float32" || expressionType == "float64") {
 		e.typ = "FLOAT_EXP"
 	} else if tokens > 1 && expressionType != "string" {
 		e.typ = "INT_EXP"
