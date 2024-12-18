@@ -11,7 +11,7 @@ import (
 
 func trimQuote(s string) string {
 	if len(s) >= 2 && s[0] == '\'' {
-		return strings.ReplaceAll(s[1:len(s)-2], "\\'", "'")
+		return strings.ReplaceAll(s[1:len(s)-1], "\\'", "'")
 	}
 	return strings.Trim(s, "\"`") // TODO: unescape
 }
