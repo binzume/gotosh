@@ -82,16 +82,16 @@ var InitBuiltInFuncs = func(s *state) {
 		"runtime.GOARCH":       {exp: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
 		"runtime.GOOS":         {exp: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
 		// math (using bc)
-		"math.Pi":   {exp: `3.141592653589793`, retTypes: []Type{"float32"}}, // constant
-		"math.E":    {exp: `2.718281828459045`, retTypes: []Type{"float32"}}, // constant
-		"math.Sqrt": {exp: `echo "scale=16;sqrt({0})" | bc`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Pow":  {exp: `echo "scale=16;e(l({0})*{1})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Exp":  {exp: `echo "scale=16;e({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Log":  {exp: `echo "scale=16;l({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Sin":  {exp: `echo "scale=16;s({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Cos":  {exp: `echo "scale=16;c({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Tan":  {exp: `echo "scale=16;s({0})/c({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
-		"math.Atan": {exp: `echo "scale=16;a({0})" | bc -l`, retTypes: []Type{"float32"}, stdout: true},
+		"math.Pi":   {exp: `3.141592653589793`, retTypes: []Type{"float64"}}, // constant
+		"math.E":    {exp: `2.718281828459045`, retTypes: []Type{"float64"}}, // constant
+		"math.Sqrt": {typ: "FLOAT_EXP", exp: "sqrt({0})", retTypes: []Type{"float64"}},
+		"math.Pow":  {typ: "FLOAT_EXP", exp: "e(l({0})*{1})", retTypes: []Type{"float64"}},
+		"math.Exp":  {typ: "FLOAT_EXP", exp: "e({0})", retTypes: []Type{"float64"}},
+		"math.Log":  {typ: "FLOAT_EXP", exp: "l({0})", retTypes: []Type{"float64"}},
+		"math.Sin":  {typ: "FLOAT_EXP", exp: "s({0})", retTypes: []Type{"float64"}},
+		"math.Cos":  {typ: "FLOAT_EXP", exp: "c({0})", retTypes: []Type{"float64"}},
+		"math.Tan":  {typ: "FLOAT_EXP", exp: "s({0})/c({0})", retTypes: []Type{"float64"}},
+		"math.Atan": {typ: "FLOAT_EXP", exp: "a({0})", retTypes: []Type{"float64"}},
 		// TODO: cast
 		"int":              {exp: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true},
 		"byte":             {retTypes: []Type{"int"}},

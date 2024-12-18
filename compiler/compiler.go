@@ -57,12 +57,13 @@ type shExpression struct {
 	retTypes   []Type
 	primaryIdx int
 	values     []string // for array, slice, struct
+	convFunc   func(arg []string) string
 }
 
 func (f *shExpression) AsValue() string {
 	exp := strings.TrimSpace(f.exp)
 	if f.typ == "FLOAT_EXP" {
-		exp = `$(echo "scale=16;` + exp + `" | bc)`
+		exp = `$(echo "scale=16; ` + exp + `" | bc -l)` // TODO: Add BC_LINE_LENGTH=1000 if needed.
 	} else if f.typ == "INT_EXP" {
 		exp = "$(( " + exp + " ))"
 	} else if f.typ == "STR_CMP" {
@@ -94,13 +95,7 @@ func (f *shExpression) AsExec() string {
 	return strings.TrimSpace(f.exp)
 }
 
-type shFunc struct {
-	exp        string
-	stdout     bool
-	retTypes   []Type
-	primaryIdx int
-	convFunc   func(arg []string) string
-}
+type shFunc shExpression
 
 type state struct {
 	scanner.Scanner
@@ -317,7 +312,7 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	} else {
 		exp += " " + strings.Join(args, " ")
 	}
-	e := &shExpression{exp: exp, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
+	e := &shExpression{exp: exp, typ: f.typ, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
 	if len(f.retTypes) > 0 && f.retTypes[0] == "_ARG1" && len(args) > 0 {
 		e.retVar = varName(args[0])
 	}
