@@ -30,22 +30,17 @@ func returnStringAndStatus() (string, shell.StatusCode) {
 	return "aaa", 123
 }
 
-// Same as shell.StatusCode
-type StatusCode = int8
-
 // Implements strings.Index()
 func GOTOSH_FUNC_strings_Index(s, f string) int {
-	fl := len(f)
-	end := len(s) - fl + 1
-	for i := 0; i < end; i++ {
-		if s[i:i+fl] == f {
-			return i
-		}
+	i := 0
+	shell.Do(`_tmp=${s#*$f}; i=$((${#s}-${#_tmp}-${#f}))`)
+	if i < 0 {
+		return -1
 	}
-	return -1
+	return i
 }
 
-func returnStringAndStatus2() (StatusCode, string) {
+func returnStringAndStatus2() (shell.StatusCode, string) {
 	return 111, "bbb"
 }
 
@@ -106,15 +101,10 @@ func main() {
 	// for debugging
 	fmt.Println(reflect.TypeOf(msg))
 
-	fmt.Println(strings.Index("hello, world", "ld"))
+	fmt.Println(strings.Index("hello, wo rl'\" d!", "l'\" d"))
 
 	// TODO: remove "(,)"
 	if (("") == "a") || (1+1 == 2) {
 		fmt.Println("true")
 	}
-
-	// float
-	var a = 1.5 * 1.5
-	fmt.Println(a * 2.5 * 3)
-	fmt.Println(int(a))
 }
