@@ -17,7 +17,7 @@ func trimQuote(s string) string {
 }
 
 func varName(s string) string {
-	return strings.ReplaceAll(strings.Trim(trimQuote(s), "${}[@]"), ".", "__")
+	return strings.ReplaceAll(strings.TrimSuffix(strings.Trim(trimQuote(s), "${} "), "[@]"), ".", "__")
 }
 
 func varValue(name string) string {
@@ -239,6 +239,21 @@ func (s *state) readType(scaned bool) Type {
 	}
 	return Type(strings.TrimPrefix(t, "shell."))
 }
+func (s *state) setType(name string, t Type) {
+	if name == "TempVarString" { // TODO
+		name = "string"
+	} else if name == "StatusCode" {
+		name = "int"
+	}
+	s.vars[name] = t
+	for s.types[t] != "" {
+		t = s.types[t]
+	}
+	f := strings.Split(string(t), ":")
+	for i := 1; i < len(f)-2; i += 2 {
+		s.setType(name+"."+f[i], Type(f[i+1]))
+	}
+}
 
 func (s *state) fields(t Type, name string) []TypedName {
 	for s.types[t] != "" {
@@ -406,7 +421,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 			} else if expressionType == "string" {
 				t = "\"" + varValue(t) + "\""
 			} else if expressionType == "float32" || expressionType == "float64" {
-				t = varValue(t)
+				t = " " + varValue(t)
 			}
 		} else if strings.Contains("=!<>", t) && s.Peek() == '=' {
 			s.Scan()
@@ -460,26 +475,16 @@ func (s *state) procAssign(names []string, declare, readonly bool) {
 			statusIndex = i
 		}
 		if typ != "" {
-			s.vars[name] = typ
+			s.setType(name, typ)
 		} else if declare || s.vars[name] == "" {
-			if len(e.retTypes) > i && e.retTypes[i] != "" {
-				s.vars[name] = e.retTypes[i]
-			} else {
-				s.vars[name] = "any"
+			if len(e.retTypes) > i {
+				s.setType(name, e.retTypes[i])
 			}
-		}
-		if s.vars[name] == "TempVarString" { // TODO
-			s.vars[name] = "string"
-		} else if s.vars[name] == "StatusCode" {
-			s.vars[name] = "int"
 		}
 	}
 	writeAssign := func(i int, v, vn string) {
 		local := declare && s.funcName != ""
 		for vi, field := range s.fields(s.vars[names[i]], "") {
-			if field.Name != "" {
-				s.vars[names[i]+field.Name] = field.Type
-			}
 			name := varName(names[i] + field.Name)
 			if local {
 				s.WriteString("local ")
@@ -552,15 +557,15 @@ func (s *state) procReturn() {
 
 func (s *state) procFunc() {
 	var args []string
-	var argTypes []Type
+	var argTypes = 0
 	tok := s.Scan()
 	name := s.TokenText()
 	if tok == '(' {
 		s.Scan()
 		args = append(args, s.TokenText())
 		t := s.readType(false)
-		s.vars[args[len(argTypes)]] = Type(t)
-		argTypes = append(argTypes, Type(t))
+		s.setType(args[argTypes], t)
+		argTypes++
 		s.Scan() // .
 		s.Scan() // name
 		name = t.MemberName(s.TokenText())
@@ -575,9 +580,8 @@ func (s *state) procFunc() {
 			args = append(args, s.TokenText())
 		} else {
 			t := s.readType(true)
-			for len(args) > len(argTypes) {
-				s.vars[args[len(argTypes)]] = t
-				argTypes = append(argTypes, t)
+			for ; len(args) > argTypes; argTypes++ {
+				s.setType(args[argTypes], t)
 			}
 		}
 	}

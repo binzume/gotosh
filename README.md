@@ -139,7 +139,9 @@ main "${@}"
 - [os.Rename](https://pkg.go.dev/os#Rename)
 - [os.Pipe](https://pkg.go.dev/os#Pipe)
 - [math.Sqrt](https://pkg.go.dev/math#Sqrt)
+- [math.Pow](https://pkg.go.dev/math#Pow)
 - [math.Exp](https://pkg.go.dev/math#Exp)
+- [math.Log](https://pkg.go.dev/math#Log)
 - [math.Sin](https://pkg.go.dev/math#Sin)
 - [math.Cos](https://pkg.go.dev/math#Cos)
 - [math.Atan](https://pkg.go.dev/math#Atan)
@@ -185,18 +187,18 @@ Goの文法をすべてサポートすることは目指していないので、
 
 ## 型
 
-- 利用可能な型は、`int`, `string`, `float32`, `[]int`, `[]string` のみです
-- floatを使うためには bc コマンドが必要です
+- 利用可能な型は、`int`, `string`, `float32/64`, `[]int`, `[]string` のみです
+- floatの計算のためには `bc` コマンドが必要です
 - ポインタは無いのですべての値渡しです
 
 ### struct
 
-structのサポートはまだ途中です
+structのサポートはまだ途中です。フィールド名と型のペアが並んだ単純なstructのみサポートしています。
 
-- フィールド名と型のペアが並んだ単純なstructのみサポートしています
 - sliceも入れることはできません
 - struct中にstructを直接定義できません
 - 初期化時にフィールド名を指定できません
+- structを返す関数の戻り値を式の途中で使えません(一度変数に代入してください)
 
 ```go
 // OK

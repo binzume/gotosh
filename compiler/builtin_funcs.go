@@ -82,16 +82,19 @@ var InitBuiltInFuncs = func(s *state) {
 		"runtime.GOARCH":       {exp: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
 		"runtime.GOOS":         {exp: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
 		// math (using bc)
-		"math.Pi":   {exp: `3.141592653589793`, retTypes: []Type{"float64"}}, // constant
-		"math.E":    {exp: `2.718281828459045`, retTypes: []Type{"float64"}}, // constant
+		"math.Pi":   {exp: "3.141592653589793", retTypes: []Type{"float64"}}, // constant
+		"math.E":    {exp: "2.718281828459045", retTypes: []Type{"float64"}}, // constant
 		"math.Sqrt": {typ: "FLOAT_EXP", exp: "sqrt({0})", retTypes: []Type{"float64"}},
 		"math.Pow":  {typ: "FLOAT_EXP", exp: "e(l({0})*{1})", retTypes: []Type{"float64"}},
 		"math.Exp":  {typ: "FLOAT_EXP", exp: "e({0})", retTypes: []Type{"float64"}},
 		"math.Log":  {typ: "FLOAT_EXP", exp: "l({0})", retTypes: []Type{"float64"}},
 		"math.Sin":  {typ: "FLOAT_EXP", exp: "s({0})", retTypes: []Type{"float64"}},
 		"math.Cos":  {typ: "FLOAT_EXP", exp: "c({0})", retTypes: []Type{"float64"}},
-		"math.Tan":  {typ: "FLOAT_EXP", exp: "s({0})/c({0})", retTypes: []Type{"float64"}},
+		"math.Tan":  {typ: "FLOAT_EXP", exp: "x={0}; s(x)/c(x)", retTypes: []Type{"float64"}},
 		"math.Atan": {typ: "FLOAT_EXP", exp: "a({0})", retTypes: []Type{"float64"}},
+		"math.Sinh": {typ: "FLOAT_EXP", exp: "x={0}; ((e(x)-e(-x))/2)", retTypes: []Type{"float64"}},
+		"math.Cosh": {typ: "FLOAT_EXP", exp: "x={0}; ((e(x)+e(-x))/2)", retTypes: []Type{"float64"}},
+		"math.Tanh": {typ: "FLOAT_EXP", exp: "x={0}; ((e(x)-e(-x))/(e(x)+e(-x)))", retTypes: []Type{"float64"}},
 		// TODO: cast
 		"int":              {exp: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true},
 		"byte":             {retTypes: []Type{"int"}},
