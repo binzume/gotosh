@@ -28,5 +28,7 @@ jobs:
       run: ./compare_output.sh read_stdin
     - name: Test file_io
       run: ./compare_output.sh file_io
+    - name: Test math
+      run: ./compare_output.sh math_sample
     - name: Test misc
       run: ./compare_output.sh misc
