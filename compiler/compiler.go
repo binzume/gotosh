@@ -109,7 +109,6 @@ type state struct {
 	vars         map[string]Type
 	types        map[Type]Type
 	cl           []string
-	useExFor     bool
 	lastToken    rune
 	funcName     string
 	w            io.Writer
@@ -489,9 +488,6 @@ func (s *state) procAssign(names []string, declare, readonly bool) {
 			name := varName(names[i] + field.Name)
 			if local {
 				s.WriteString("local ")
-				if readonly {
-					s.WriteString("-r ")
-				}
 			}
 			if vn != "" && len(e.retTypes) > i {
 				s.Writeln(name + "=\"$" + varName(vn+field.Name) + "\"")
@@ -632,12 +628,6 @@ func (s *state) procFor() {
 	n := 0
 	for ; s.lastToken != scanner.EOF && s.lastToken != '{' && n < 3; n++ {
 		f[n] = s.readExpression("", '{')
-	}
-
-	if s.useExFor {
-		s.Writeln("for (( " + f[0].AsExec() + "; " + f[1].AsExec() + "; " + f[2].AsExec() + " )); do")
-		s.cl = append(s.cl, "done")
-		return
 	}
 
 	condIdx := 0
