@@ -45,9 +45,10 @@ var InitBuiltInFuncs = func(s *state) {
 		"strings.Contains": {exp: "case {0} in (*{1}*) echo 1;; (*) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true},
 		"strings.IndexAny": {exp: "expr '(' index {0} {1} ')' - 1", retTypes: []Type{"int"}, stdout: true},
 		// os
-		"os.Stdin":    {exp: "0", retTypes: []Type{"*os.File"}}, // variable
-		"os.Stdout":   {exp: "1", retTypes: []Type{"*os.File"}}, // variable
-		"os.Stderr":   {exp: "1", retTypes: []Type{"*os.File"}}, // variable
+		"os.Stdin":    {exp: "0", retTypes: []Type{"*os.File"}},         // variable
+		"os.Stdout":   {exp: "1", retTypes: []Type{"*os.File"}},         // variable
+		"os.Stderr":   {exp: "1", retTypes: []Type{"*os.File"}},         // variable
+		"os.Args":     {exp: `"$0" "$@"`, retTypes: []Type{"[]string"}}, // variable
 		"os.Exit":     {exp: "exit"},
 		"os.Getwd":    {exp: "pwd", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"os.Chdir":    {exp: "cd", retTypes: []Type{"StatusCode"}, stdout: true},
@@ -84,17 +85,17 @@ var InitBuiltInFuncs = func(s *state) {
 		// math (using bc)
 		"math.Pi":   {exp: "3.141592653589793", retTypes: []Type{"float64"}}, // constant
 		"math.E":    {exp: "2.718281828459045", retTypes: []Type{"float64"}}, // constant
-		"math.Sqrt": {typ: "FLOAT_EXP", exp: "sqrt({0})", retTypes: []Type{"float64"}},
-		"math.Pow":  {typ: "FLOAT_EXP", exp: "e(l({0})*{1})", retTypes: []Type{"float64"}},
-		"math.Exp":  {typ: "FLOAT_EXP", exp: "e({0})", retTypes: []Type{"float64"}},
-		"math.Log":  {typ: "FLOAT_EXP", exp: "l({0})", retTypes: []Type{"float64"}},
-		"math.Sin":  {typ: "FLOAT_EXP", exp: "s({0})", retTypes: []Type{"float64"}},
-		"math.Cos":  {typ: "FLOAT_EXP", exp: "c({0})", retTypes: []Type{"float64"}},
-		"math.Tan":  {typ: "FLOAT_EXP", exp: "x={0}; s(x)/c(x)", retTypes: []Type{"float64"}},
-		"math.Atan": {typ: "FLOAT_EXP", exp: "a({0})", retTypes: []Type{"float64"}},
-		"math.Sinh": {typ: "FLOAT_EXP", exp: "x={0}; ((e(x)-e(-x))/2)", retTypes: []Type{"float64"}},
-		"math.Cosh": {typ: "FLOAT_EXP", exp: "x={0}; ((e(x)+e(-x))/2)", retTypes: []Type{"float64"}},
-		"math.Tanh": {typ: "FLOAT_EXP", exp: "x={0}; ((e(x)-e(-x))/(e(x)+e(-x)))", retTypes: []Type{"float64"}},
+		"math.Sqrt": {typ: "FLOAT_EXP", exp: "sqrt({f0})", retTypes: []Type{"float64"}},
+		"math.Pow":  {typ: "FLOAT_EXP", exp: "e(l({f0})*{f1})", retTypes: []Type{"float64"}},
+		"math.Exp":  {typ: "FLOAT_EXP", exp: "e({f0})", retTypes: []Type{"float64"}},
+		"math.Log":  {typ: "FLOAT_EXP", exp: "l({f0})", retTypes: []Type{"float64"}},
+		"math.Sin":  {typ: "FLOAT_EXP", exp: "s({f0})", retTypes: []Type{"float64"}},
+		"math.Cos":  {typ: "FLOAT_EXP", exp: "c({f0})", retTypes: []Type{"float64"}},
+		"math.Tan":  {typ: "FLOAT_EXP", exp: "x={f0}; s(x)/c(x)", retTypes: []Type{"float64"}},
+		"math.Atan": {typ: "FLOAT_EXP", exp: "a({f0})", retTypes: []Type{"float64"}},
+		"math.Sinh": {typ: "FLOAT_EXP", exp: "x={f0}; ((e(x)-e(-x))/2)", retTypes: []Type{"float64"}},
+		"math.Cosh": {typ: "FLOAT_EXP", exp: "x={f0}; ((e(x)+e(-x))/2)", retTypes: []Type{"float64"}},
+		"math.Tanh": {typ: "FLOAT_EXP", exp: "x={f0}; ((e(x)-e(-x))/(e(x)+e(-x)))", retTypes: []Type{"float64"}},
 		// TODO: cast
 		"int":              {exp: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true},
 		"byte":             {retTypes: []Type{"int"}},
@@ -105,7 +106,7 @@ var InitBuiltInFuncs = func(s *state) {
 		"shell.StatusCode": {retTypes: []Type{"int"}},
 		// slice
 		"len": {retTypes: []Type{"int"}, convFunc: func(arg []string) string { return "${#" + strings.Trim(trimQuote(arg[0]), "${}") + "}" }},
-		"append": {retTypes: []Type{"_ARG1"}, primaryIdx: -1,
+		"append": {typ: "RET_ARG1", retTypes: []Type{"[]any"}, primaryIdx: -1,
 			convFunc: func(arg []string) string {
 				return varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
 			}},

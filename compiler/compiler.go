@@ -63,7 +63,7 @@ type shExpression struct {
 func (f *shExpression) AsValue() string {
 	exp := strings.TrimSpace(f.exp)
 	if f.typ == "FLOAT_EXP" {
-		exp = `$(echo "scale=16; ` + exp + `" | bc -l)` // TODO: Add BC_LINE_LENGTH=1000 if needed.
+		exp = `$(echo "` + exp + `" | bc -l)` // TODO: Add BC_LINE_LENGTH=1000 if needed.
 	} else if f.typ == "INT_EXP" {
 		exp = "$(( " + exp + " ))"
 	} else if f.typ == "STR_CMP" {
@@ -280,34 +280,34 @@ func (s *state) readName() string {
 }
 
 func (s *state) readFuncCall(name string, variable bool) *shExpression {
-	var args []string
+	var args []*shExpression
 	if p := strings.LastIndex(name, "."); p >= 0 {
 		ns := name[:p]
 		name = name[p+1:]
 		if s.vars[ns] != "" {
 			name = s.vars[ns].MemberName(name)
+			var v []string
 			for _, field := range s.fields(s.vars[ns], ns) {
-				args = append(args, `"`+varValue(varName(field.Name))+`"`)
+				v = append(v, `"$`+varName(field.Name)+`"`)
 			}
+			args = []*shExpression{{exp: `"` + varValue(varName(ns)) + `"`, values: v, retTypes: []Type{s.vars[ns]}}}
 		} else if s.imports[ns] != "" {
 			name = path.Base(s.imports[ns]) + "." + name
 		}
 	}
 	for !variable && s.lastToken != scanner.EOF && s.lastToken != ')' {
-		e := s.readExpression("", ',')
-		for i, t := range e.retTypes {
+		args = append(args, s.readExpression("", ','))
+	}
+
+	var values []string
+	for _, e := range args {
+		for i := range e.retTypes {
 			if i == e.primaryIdx && len(e.values) > 0 {
-				args = append(args, e.values...)
+				values = append(values, e.values...)
 			} else if i == 0 {
-				if fields := s.fields(t, ""); len(fields) == 0 || fields[0].Name != "" {
-					for _, field := range fields {
-						args = append(args, `"$`+varName(e.AsValue()+field.Name)+`"`)
-					}
-				} else {
-					args = append(args, e.AsValue())
-				}
+				values = append(values, e.AsValue())
 			} else if e.primaryIdx != i {
-				args = append(args, `"`+varValue(RetVarName(e.retTypes, i))+`"`)
+				values = append(values, `"`+varValue(RetVarName(e.retTypes, i))+`"`) // FIXME
 			}
 		}
 	}
@@ -318,18 +318,22 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 		exp = f.exp
 	}
 	if f.convFunc != nil {
-		exp = f.convFunc(args)
-	} else if strings.Contains(exp, "{0}") || strings.Contains(exp, "{1}") {
+		exp = f.convFunc(values)
+	} else if strings.Contains(exp, "{0}") || strings.Contains(exp, "{1}") || strings.Contains(exp, "{f0}") {
 		for i, a := range args {
-			exp = strings.ReplaceAll(exp, fmt.Sprintf("{%d}", i), a)
-			exp = strings.ReplaceAll(exp, fmt.Sprintf("{*%d}", i), varName(a))
+			exp = strings.ReplaceAll(exp, fmt.Sprintf("{%d}", i), a.AsValue())
+			exp = strings.ReplaceAll(exp, fmt.Sprintf("{*%d}", i), varName(a.AsValue()))
+			if a.typ == "FLOAT_EXP" {
+				exp = strings.ReplaceAll(exp, fmt.Sprintf("{f%d}", i), a.exp)
+			}
+			exp = strings.ReplaceAll(exp, fmt.Sprintf("{f%d}", i), a.AsValue())
 		}
 	} else {
-		exp += " " + strings.Join(args, " ")
+		exp += " " + strings.Join(values, " ")
 	}
 	e := &shExpression{exp: exp, typ: f.typ, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
-	if len(f.retTypes) > 0 && f.retTypes[0] == "_ARG1" && len(args) > 0 {
-		e.retVar = varName(args[0])
+	if f.typ == "RET_ARG1" && len(args) > 0 {
+		e.retVar = varName(args[0].AsValue())
 	}
 	return e
 }
@@ -438,7 +442,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 	}
 	s.skipNextScan = s.skipNextScan || (endTok == 0 && s.Line != l)
 	e := &shExpression{exp: exp, retTypes: []Type{typeHint}}
-	if funcRet != nil && exp == funcRet.AsValue() {
+	if funcRet != nil && (exp == funcRet.exp || exp == funcRet.AsValue()) {
 		return funcRet
 	} else if lastVar != "" && exp == lastVar {
 		e.retTypes = []Type{s.vars[strings.ReplaceAll(strings.TrimSuffix(exp, "[@]"), "__", ".")]} // TODO
@@ -458,7 +462,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 	return e
 }
 
-func (s *state) procAssign(names []string, declare, readonly bool) {
+func (s *state) procAssign(names []string, declare, _readonly bool) {
 	var typ Type
 	if len(names) == 0 { // var or const
 		for ; len(names) == 0 || s.lastToken == ','; s.Scan() {
@@ -625,8 +629,13 @@ func (s *state) procFor() {
 	f := []*shExpression{{}, {}, {}}
 
 	n := 0
+	var counter *shExpression
 	for ; s.lastToken != scanner.EOF && s.lastToken != '{' && n < 3; n++ {
 		f[n] = s.readExpression("", '{')
+		if n == 0 && s.lastToken == ',' { // skip "_," for _ ,v := range ...
+			counter = f[n]
+			f[n] = s.readExpression("", '{')
+		}
 	}
 
 	condIdx := 0
@@ -642,12 +651,22 @@ func (s *state) procFor() {
 	if f[condIdx].AsValue() != "" {
 		cond = "[ " + f[condIdx].AsValue() + " -ne 0 ]"
 	}
-	s.Writeln("while " + cond + "; do :")
+	if ranged := strings.Split(f[0].AsExec(), ":=range"); n == 1 && len(ranged) == 2 {
+		if counter != nil && counter.exp != "$_" {
+			s.Writeln("local " + varName(counter.exp) + "=-1")
+		}
+		s.Writeln("for " + ranged[0] + ` in ` + ranged[1] + "; do :")
+	} else {
+		s.Writeln("while " + cond + "; do :")
+	}
 	end := "done"
 	if f[2].AsExec() != "" {
 		end = ": $(( " + f[2].AsExec() + " )); done" // TODO continue...
 	}
 	s.cl = append(s.cl, end)
+	if counter != nil && counter.exp != "$_" {
+		s.Writeln(": $(( " + varName(counter.exp) + "++ ))")
+	}
 }
 
 func (s *state) procIf() {
