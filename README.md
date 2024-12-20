@@ -16,7 +16,7 @@ Supported:
 TODO:
 
 - jq, curl support
-- Convert compiler/compiler.go to compiler.sh
+- Convert compiler/compiler.go to goto.sh
 
 # Usage
 
