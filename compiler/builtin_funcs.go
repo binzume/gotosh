@@ -76,6 +76,7 @@ var InitBuiltInFuncs = func(s *state) {
 		"os.Rename":            {exp: "mv", retTypes: []Type{"StatusCode"}},
 		"os.File__WriteString": {exp: `echo -n {1} >&{0}`},
 		"os.File__Close":       {exp: `eval "exec {0}<&- {0}>&-"`},
+		"os.File__Fd":          {exp: `{0}`, retTypes: []Type{"int"}},
 		"exec.Command":         {exp: "echo -n ", retTypes: []Type{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
 		"exec.Cmd__Output":     {exp: "bash -c", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"reflect.TypeOf":       {retTypes: []Type{"string"}, convFunc: func(arg []string) string { return `"` + string(s.vars[varName(arg[0])]) + `"` }},
