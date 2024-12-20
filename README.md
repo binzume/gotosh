@@ -179,11 +179,11 @@ func main() {
 
 # 制限
 
-Goの文法をすべてサポートすることは目指していないので、
+Goの文法をすべてサポートしているわけではありません。以下のキーワードは未サポートです。
 
-- defer, range, make, new, chan, switch, select, map...
+- map, interface, chan, make, new, defer, switch, case, select...
 
-他にもサポートしていない文法が多いです。
+また、サポートされていても制限がある場合や挙動が異なる場合があります。
 
 ## 型
 
