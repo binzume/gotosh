@@ -406,6 +406,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 				}
 				if len(idx) == 1 {
 					t = ot + "[" + idx[0].AsValue() + "]"
+					expressionType = Type(strings.TrimPrefix(string(expressionType), "[]"))
 				} else if len(idx) >= 2 {
 					t += ":" + idx[0].AsValue() + ":$(( " + idx[1].AsValue() + " - " + idx[0].AsValue() + " ))"
 				}
@@ -422,7 +423,7 @@ func (s *state) readExpression(typeHint Type, endTok rune) *shExpression {
 				if len(funcRet.retTypes) > 0 && funcRet.retTypes[0] != "" {
 					expressionType = funcRet.retTypes[0]
 				}
-			} else if expressionType == "string" {
+			} else if expressionType == "string" || expressionType.IsArray() {
 				t = "\"" + varValue(t) + "\""
 			} else if expressionType == "float32" || expressionType == "float64" {
 				t = " " + varValue(t)
