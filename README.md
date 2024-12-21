@@ -156,7 +156,7 @@ Constatns:
 - runtime.GOOS
 - shell.IsShellScript // トランスパイル後はtrueになるので、シェルスクリプト専用の処理への切り替えに使えます
 
-`GOTOSH_FUNC_` プレフィックスが付いた関数を定義することで、任意のパッケージの関数を実装することができます。 (以下は `strings.Index()` を実装する例。内部の実装用なので後で変わる可能性が高いです)
+`GOTOSH_FUNC_` プレフィックスが付いた関数を定義することで、他のパッケージの関数を実装することができます。 (以下は `strings.Index()` を実装する例。暫定的な処置なので将来変わるかもしれません)
 
 ```go
 // Implements strings.Index()
@@ -193,12 +193,12 @@ Goの文法をすべてサポートしているわけではありません。以
 
 ### struct
 
-structのサポートはまだ途中です。フィールド名と型のペアが並んだ単純なstructのみサポートしています。
+structのサポートはまだ途中です。埋め込み等が無い単純なstructのみサポートしています。
 
 - sliceも入れることはできません
 - struct中にstructを直接定義できません
 - 初期化時にフィールド名を指定できません
-- structを返す関数の戻り値を式の途中で使えません(一度変数に代入してください)
+- structを返す関数を式の途中で使えません(一度変数に代入してください)
 
 ```go
 // OK
@@ -208,13 +208,13 @@ type A struct {
 // OK
 type B struct {
 	a A
-	b string
+	b1, b2 string
 }
 
 // Not supported
 type C struct {
-	c1, c2 string
-	c3 struct {
+	c1 string
+	c2 struct {
 		d int
 	}
 }
