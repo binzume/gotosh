@@ -76,6 +76,11 @@ func Do(rawScript string) StatusCode {
 	return 1
 }
 
+func SetFloatPrecision(a int) struct{} {
+	// Do nothing in Go
+	return struct{}{}
+}
+
 // TODO: coreutil.Sleep
 func Sleep(t float32) {
 	time.Sleep(time.Duration(t*1000) * time.Millisecond)

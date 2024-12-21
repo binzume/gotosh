@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -22,6 +23,14 @@ var InitBuiltInFuncs = func(s *state) {
 		"shell.UnixTimeMs":    {expr: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []Type{"int"}, stdout: true},
 		"shell.Do":            {retTypes: []Type{"StatusCode"}, applyFunc: func(e *shExpression, arg []string) { e.expr = trimQuote(arg[0]) }, primaryIdx: -1},
 		"shell.IsShellScript": {expr: "1", retTypes: []Type{"bool"}},
+
+		"shell.SetFloatPrecision": {applyFunc: func(e *shExpression, arg []string) {
+			if p, err := strconv.Atoi(arg[0]); err == nil && p >= 0 {
+				asValueFunc["FLOAT_EXPR"] = func(e *shExpression) string {
+					return `$(echo "scale=` + strconv.Itoa(p) + `;` + e.expr + `" | BC_LINE_LENGTH=` + strconv.Itoa(p+10) + ` bc -l)`
+				}
+			}
+		}, retTypes: []Type{"struct{:}"}, primaryIdx: -1},
 		// fmt
 		"fmt.Print":   {expr: "echo -n"},
 		"fmt.Println": {expr: "echo"},
