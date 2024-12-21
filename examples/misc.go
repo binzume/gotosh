@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -49,13 +50,10 @@ func returnStringMulti() (shell.TempVarString, shell.TempVarString, shell.TempVa
 }
 
 type Date struct {
-	// TODO: support "Year, Mmonth, Day int"
-	Year  int
-	Month int
-	Day   int
+	Year, Month, Day int
 }
 type Person struct {
-	Name     string `tag:"aa"`
+	Name     string `tag:"name field"`
 	Age      int
 	Birthday Date
 }
@@ -74,6 +72,12 @@ func main() {
 	//  args
 	for i := 1; i < shell.NArgs(); i++ {
 		fmt.Println("arg", i, shell.Arg(i))
+	}
+
+	for i, arg := range os.Args {
+		if i != 0 {
+			fmt.Println("arg(range)", i, arg)
+		}
 	}
 
 	// func call
