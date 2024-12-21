@@ -80,8 +80,8 @@ var InitBuiltInFuncs = func(s *state) {
 		"os.Pipe": {expr: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && _tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )) && _tmp1=$(( ++GOTOSH_fd ))` +
 			` && eval "exec $_tmp1<>\"$_tmp/f\" $_tmp0<\"$_tmp/f\"" && rm -rf $_tmp`,
 			retTypes: []Type{"*os.File", "*os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Open":              {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0<"{0}`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Create":            {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0>"{0}`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Open":              {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0<'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Create":            {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0>'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
 		"os.Mkdir":             {expr: "mkdir {0}", retTypes: []Type{"StatusCode"}},
 		"os.MkdirAll":          {expr: "mkdir -p {0}", retTypes: []Type{"StatusCode"}},
 		"os.Remove":            {expr: "rm -f", retTypes: []Type{"StatusCode"}},
