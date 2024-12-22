@@ -8,7 +8,7 @@ Goでコンパイルしたバイナリを実行するのが困難な環境のた
 
 Supported:
 
-- Types: `int`, `string`, `float32`, `[]int`, `[]string`, `struct`
+- Types: `int`, `string`, `float64`, `[]int`, `[]string`, `struct`
 - Go keywords: func, if, else, for, break, continue, const, var, struct, append, len, go
 
 TODO:
@@ -87,11 +87,11 @@ main "${@}"
 
 ## Supported functions
 
-- [shell.*](shell/builtin.go)
 - [shell.NArg](shell/builtin.go)
 - [shell.Arg](shell/builtin.go)
 - [shell.Exec](shell/builtin.go)
 - [shell.Do](shell/builtin.go)
+- [shell.SetFloatPrecision](shell/builtin.go)
 - [shell.ReadLine](shell/builtin.go)
 - [shell.Sleep](shell/builtin.go)
 - [shell.UnixTimeMs](shell/builtin.go)
@@ -251,6 +251,23 @@ sliceなども含めて全ての値は値渡しです。
 サブプロセスとして実行されます。無名関数はまだサポートされていないので通常の名前付きの関数を呼び出してください。
 
 また、チャネルも使えないので、`os.Pipe()` (fifoが作られます)で作ったreader/writer等で通信してください。
+
+## 特殊な関数
+
+トランスパイラ自体を制御する関数です。トランスパイル時に処理されるので定数のみ渡せます。
+
+### shell.Do()
+
+トランスパイル時に渡された文字列をシェルスクリプトとして出力します。単一の文字列リテラルのみ利用できます。
+
+### shell.SetFloatPrecision()
+
+float型の精度を指定します。例えば、以下のプログラムをトランスパイルして実行すると円周率を1000桁出力します。
+
+```go
+	shell.SetFloatPrecision(1000)
+	fmt.Println("Pi:", math.Atan(1)*4)
+```
 
 # Security
 
