@@ -19,6 +19,8 @@ var InitBuiltInFuncs = func(s *state) {
 		"shell.ReadLine":      {expr: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1},
 		"shell.SubStr":        {expr: "\"${{*0}:{1}:{2}}\"", retTypes: []Type{"string"}},
 		"shell.Arg":           {expr: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true},
+		"shell.Args":          {expr: `"$@"`, retTypes: []Type{"[]string"}},
+		"shell.SetArgs":       {expr: `set -- `},
 		"shell.NArgs":         {expr: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
 		"shell.UnixTimeMs":    {expr: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []Type{"int"}, stdout: true},
 		"shell.Do":            {retTypes: []Type{"StatusCode"}, applyFunc: func(e *shExpression, arg []string) { e.expr = trimQuote(arg[0]) }, primaryIdx: -1},
@@ -29,6 +31,8 @@ var InitBuiltInFuncs = func(s *state) {
 				asValueFunc["FLOAT_EXPR"] = func(e *shExpression) string {
 					return `$(echo "scale=` + strconv.Itoa(p) + `;` + e.expr + `" | BC_LINE_LENGTH=` + strconv.Itoa(p+10) + ` bc -l)`
 				}
+			} else {
+				asValueFunc["FLOAT_EXPR"] = func(e *shExpression) string { return `$(echo "` + e.expr + `" | bc -l)` }
 			}
 		}, retTypes: []Type{"struct{:}"}, primaryIdx: -1},
 		// fmt
@@ -113,17 +117,14 @@ var InitBuiltInFuncs = func(s *state) {
 		// TODO: cast
 		"int":              {expr: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true},
 		"byte":             {retTypes: []Type{"int"}},
-		"float32":          {retTypes: []Type{"float32"}},
+		"float32":          {retTypes: []Type{"float64"}},
+		"float64":          {retTypes: []Type{"float64"}},
 		"string":           {retTypes: []Type{"string"}},
 		"strconv.Atoi":     {retTypes: []Type{"int", "StatusCode"}},
 		"strconv.Itoa":     {retTypes: []Type{"string"}},
 		"shell.StatusCode": {retTypes: []Type{"int"}},
 		// slice
-		"len": {retTypes: []Type{"int"}, applyFunc: func(e *shExpression, arg []string) { e.expr = "${#" + strings.Trim(trimQuote(arg[0]), "${}") + "}" }},
-		"append": {retTypes: []Type{"[]any"}, primaryIdx: -1,
-			applyFunc: func(e *shExpression, arg []string) {
-				e.retVar = varName(arg[0])
-				e.expr = varName(arg[0]) + "+=(" + strings.Join(arg[1:], " ") + ")"
-			}},
+		"len":    {retTypes: []Type{"int"}, applyFunc: func(e *shExpression, arg []string) { e.expr = "${#" + strings.Trim(trimQuote(arg[0]), "${}") + "}" }},
+		"append": {retTypes: []Type{"[]any"}},
 	}
 }

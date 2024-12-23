@@ -18,9 +18,9 @@ func (s StatusCode) Error() string {
 	return strconv.Itoa(int(s))
 }
 
-var IFS = " \t\n"
-
 var IsShellScript = false
+
+var currentArgs []string
 
 func Exec(name string, args ...string) (string, StatusCode) {
 	out, err := exec.Command(name, args...).Output()
@@ -69,6 +69,17 @@ func Arg(n int) string {
 
 func NArgs() int {
 	return len(os.Args)
+}
+
+func Args() []string {
+	if currentArgs == nil {
+		currentArgs = os.Args
+	}
+	return currentArgs
+}
+
+func SetArgs(args ...string) {
+	currentArgs = args
 }
 
 func Do(rawScript string) StatusCode {
