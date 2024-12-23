@@ -63,6 +63,7 @@ type shExpression struct {
 	stdout     bool
 	retTypes   []Type
 	primaryIdx int
+	lhs        []string
 	declare    bool
 	values     []string // for array, slice, struct
 	applyFunc  func(f *shExpression, arg []string)
@@ -92,8 +93,6 @@ func (f *shExpression) RetVarName(i int) string {
 func (f *shExpression) AsExec() string {
 	if f.stdout && f.expr != "" {
 		return f.expr + " >/dev/null"
-	} else if f.declare {
-		return "local " + f.expr
 	} else if f.typ != "" {
 		return ": " + f.AsValue()
 	}
@@ -352,8 +351,11 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 	var lastExpr *shExpression
 	var lastVar string
 	var expressionType Type = typeHint
-	for tok := s.Scan(); tok != scanner.EOF && (endToks != "" || s.Line == l); tok = s.Scan() {
+	var lhs, lhs_candidate []string
+	var lastTok rune
+	for tok := s.Scan(); tok != scanner.EOF && (endToks != "" || strings.ContainsRune(".=*/%,:", lastTok) || s.Line == l); tok = s.Scan() {
 		t := s.TokenText()
+		l = s.Line
 		if strings.ContainsRune(endToks, tok) || (!allowAssign && tok == ',') || tok == ';' {
 			break
 		} else if tok == '(' {
@@ -395,6 +397,9 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			if s.vars[t] != "" {
 				expressionType = s.vars[t]
 			}
+			if allowAssign && lhs == nil {
+				lhs_candidate = append(lhs_candidate, t)
+			}
 			ot := t
 			t = varName(t)
 			if s.vars[ot].IsArray() {
@@ -424,18 +429,32 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			} else if expressionType == "string" || expressionType.IsArray() {
 				t = "\"" + varValue(t) + "\""
 			}
-		} else if tok == ':' && s.Peek() == '=' {
-			declare = true // TODO: save lhs
-			t = ""
 		} else if strings.Contains("=!<>", t) && s.Peek() == '=' {
 			s.Scan()
 			t = " " + t + "= "
 			typeHint = "bool"
+		} else if tok == ':' && s.Peek() == '=' {
+			declare = true
+			t = ""
+		} else if allowAssign && strings.Contains("+-*/%", t) && s.Peek() == '=' && len(lhs) > 0 {
+			s.Scan()
+			lhs = lhs_candidate
+			if expressionType == "string" && t == "+" {
+				t = ""
+			} else if expressionType != "float32" && expressionType != "float64" {
+				lhs = []string{}
+				t += "="
+			}
+		} else if allowAssign && tok == '=' {
+			lhs = lhs_candidate
+			t = ""
+			expr = ""
 		} else if tok == '.' || tok == '+' && expressionType == "string" || tok == '=' && expr == "" {
 			t = "" // skip
 		}
 		expr += t
 		tokens++
+		lastTok = tok
 		if !s.skipNextScan {
 			l = s.Line
 		}
@@ -443,9 +462,11 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 	if typeHint == "" {
 		typeHint = expressionType
 	}
-	s.skipNextScan = s.skipNextScan || (endToks == "" && s.Line != l)
-	e := &shExpression{expr: strings.TrimSpace(expr), retTypes: []Type{typeHint}, declare: declare}
+	s.skipNextScan = s.skipNextScan || s.Line != l
+	e := &shExpression{expr: strings.TrimSpace(expr), retTypes: []Type{typeHint}, declare: declare, lhs: lhs}
 	if lastExpr != nil && (expr == lastExpr.expr || expr == lastExpr.AsValue()) {
+		lastExpr.lhs = e.lhs
+		lastExpr.declare = e.declare
 		return lastExpr
 	} else if lastVar != "" && expr == lastVar {
 		e.expr = varValue(expr)
@@ -464,33 +485,24 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 	return e
 }
 
-func (s *state) procAssign(names []string, declare, _readonly bool) {
-	var typ Type
-	if len(names) == 0 { // var or const
-		for ; len(names) == 0 || s.lastToken == ','; s.Scan() {
-			s.Scan()
-			names = append(names, s.TokenText())
-		}
-		typ = s.readType(true)
-	}
-	e := s.readExpression(typ, "", true)
+func (s *state) writeExpr(e *shExpression, typ Type) {
 	statusIndex := -1
-	for i, name := range names {
+	for i, name := range e.lhs {
 		if name != "_" && e.RetVarName(i) == "?" {
 			statusIndex = i
 		}
 		if typ != "" {
 			s.setType(name, typ)
-		} else if declare || s.vars[name] == "" {
+		} else if e.declare || s.vars[name] == "" {
 			if len(e.retTypes) > i {
 				s.setType(name, e.retTypes[i])
 			}
 		}
 	}
 	writeAssign := func(i int, v, vn string) {
-		local := declare && s.funcName != ""
-		for vi, field := range s.fields(s.vars[names[i]], "") {
-			name := varName(names[i] + field.Name)
+		local := e.declare && s.funcName != ""
+		for vi, field := range s.fields(s.vars[e.lhs[i]], "") {
+			name := varName(e.lhs[i] + field.Name)
 			if local {
 				s.WriteString("local ")
 			}
@@ -512,7 +524,7 @@ func (s *state) procAssign(names []string, declare, _readonly bool) {
 			}
 		}
 	}
-	if v := e.AsValue(); e.primaryIdx >= 0 {
+	if v := e.AsValue(); e.primaryIdx >= 0 && len(e.lhs) > e.primaryIdx {
 		writeAssign(e.primaryIdx, v, "")
 	} else if v != "" {
 		s.Writeln(e.AsExec())
@@ -520,11 +532,24 @@ func (s *state) procAssign(names []string, declare, _readonly bool) {
 	if statusIndex >= 0 {
 		writeAssign(statusIndex, "", "?")
 	}
-	for i, name := range names {
+	for i, name := range e.lhs {
 		if i != e.primaryIdx && i != statusIndex && name != "_" {
 			writeAssign(i, "", e.RetVarName(i))
 		}
 	}
+}
+
+func (s *state) procVar(names []string) {
+	var typ Type
+	for ; len(names) == 0 || s.lastToken == ','; s.Scan() {
+		s.Scan()
+		names = append(names, s.TokenText())
+	}
+	typ = s.readType(true)
+	e := s.readExpression(typ, "", false)
+	e.lhs = names
+	e.declare = true
+	s.writeExpr(e, typ)
 }
 
 func (s *state) procReturn() {
@@ -633,28 +658,25 @@ func (s *state) procFunc() {
 }
 
 func (s *state) procFor() {
-	var counterVar string
-	e := s.readExpression("", "{", false)
-	if s.lastToken == ',' { // for count, value := range ...
-		counterVar = varName(e.expr)
-		e = s.readExpression("", "{", true)
-	}
+	e := s.readExpression("", "{", true)
 	if s.lastToken == ';' {
-		s.Writeln(e.AsExec())
+		s.writeExpr(e, "")
 		e = s.readExpression("", "{", false)
 	}
 
-	if ranged := strings.Split(e.expr, "= #RANGE# "); s.lastToken == '{' && len(ranged) == 2 {
-		if counterVar == "" {
-			counterVar = varName(ranged[0])
-			ranged[0] = "_"
+	counterVar := ""
+	if s.lastToken == '{' && len(e.lhs) > 0 && strings.HasPrefix(e.expr, "#RANGE# ") {
+		counterVar = e.lhs[0]
+		v := "_"
+		if len(e.lhs) > 1 {
+			v = e.lhs[1]
 		}
 		if counterVar != "" && counterVar != "_" {
 			s.Writeln("local " + counterVar + "=-1")
 			s.setType(counterVar, "int")
 		}
-		s.setType(varName(ranged[0]), Type(strings.TrimPrefix(string(e.retTypes[0]), "[]")))
-		s.Writeln("for " + varName(ranged[0]) + ` in ` + ranged[1] + "; do :")
+		s.setType(v, Type(strings.TrimPrefix(string(e.retTypes[0]), "[]")))
+		s.Writeln("for " + v + ` in ` + strings.TrimPrefix(e.expr, "#RANGE# ") + "; do :")
 	} else {
 		cond := "true"
 		if e.AsValue() != "" {
@@ -680,7 +702,7 @@ func (s *state) procFor() {
 func (s *state) procIf() {
 	e := s.readExpression("", "{", true)
 	if s.lastToken == ';' {
-		s.Writeln(e.AsExec())
+		s.writeExpr(e, "")
 		e = s.readExpression("bool", "{", false)
 	}
 	s.Writeln("if [ " + e.AsValue() + " -ne 0 ]; then :")
@@ -695,37 +717,6 @@ func (s *state) procElse() {
 		s.Writeln("else")
 	}
 	s.cl = append(s.cl, "fi")
-}
-
-func (s *state) procSentense() {
-	names := []string{s.readName()}
-	for s.lastToken == ',' {
-		s.Scan()
-		names = append(names, s.readName())
-	}
-	tok := s.lastToken
-	if tok == ':' && s.Scan() == '=' {
-		s.procAssign(names, true, false)
-	} else if tok == '=' {
-		s.procAssign(names, false, false)
-	} else if tok == '(' {
-		s.Writeln(s.readFuncCall(names[0], false).AsExec())
-	} else if strings.ContainsRune("+-*/%&|^", tok) {
-		op := s.TokenText()
-		tok = s.Scan()
-		op += s.TokenText()
-		if tok == '=' {
-			e := s.readExpression("", "", true)
-			if op == "+=" && len(e.retTypes) > 0 && e.retTypes[0] == "string" {
-				s.Writeln(varName(names[0]) + `="$` + varName(names[0]) + `"` + e.AsValue())
-				return
-			}
-			op += e.AsValue()
-		}
-		s.Writeln(": $((" + varName(names[0]) + op + "))")
-	} else {
-		fmt.Printf("# Unknown token %s: %s\n", s.Position, s.TokenText())
-	}
 }
 
 func (s *state) Compile(r io.Reader, srcName string) error {
@@ -769,15 +760,16 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "func":
 				s.procFunc()
 			case "var":
-				s.procAssign(nil, true, false)
+				s.procVar(nil)
 			case "const":
-				s.procAssign(nil, true, true)
+				s.procVar(nil)
 			case "go":
 				s.Writeln(s.readExpression("", "", false).AsExec() + " &")
 			case "defer":
 				s.Writeln("# defer " + s.readExpression("", "", false).AsExec())
 			default:
-				s.procSentense()
+				s.skipNextScan = true
+				s.writeExpr(s.readExpression("", "", true), "")
 			}
 		} else {
 			fmt.Printf("# Unknown token %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
