@@ -418,7 +418,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 					t += ":" + idx[0].AsValue() + ":$(( " + idx[1].AsValue() + " - " + idx[0].AsValue() + " ))"
 				}
 			}
-			if s.lastToken == '(' || s.funcs[ot].expr != "" {
+			if s.vars[ot] == "" && (s.lastToken == '(' || s.funcs[ot].expr != "") {
 				lastExpr = s.readFuncCall(ot, s.lastToken != '(')
 				t = lastExpr.AsValue()
 				if len(lastExpr.retTypes) > 0 && lastExpr.retTypes[0] != "" {
@@ -429,14 +429,14 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			} else if expressionType == "string" || expressionType.IsArray() {
 				t = "\"" + varValue(t) + "\""
 			}
-		} else if strings.Contains("=!<>", t) && s.Peek() == '=' {
+		} else if strings.Contains("=!<>", t) && s.Peek() == '=' && lastTok != '<' && lastTok != '>' {
 			s.Scan()
 			t = " " + t + "= "
 			typeHint = "bool"
 		} else if tok == ':' && s.Peek() == '=' {
 			declare = true
 			t = ""
-		} else if allowAssign && strings.Contains("+-*/%", t) && s.Peek() == '=' && len(lhs) > 0 {
+		} else if allowAssign && strings.Contains("+-*/%<>", t) && s.Peek() == '=' && len(lhs_candidate) > 0 {
 			s.Scan()
 			lhs = lhs_candidate
 			if expressionType == "string" && t == "+" {
@@ -638,7 +638,7 @@ func (s *state) procFunc() {
 		f.stdout = true
 	}
 
-	s.Writeln("function " + f.expr + "() {")
+	s.Writeln(f.expr + "() {")
 	s.cl = append(s.cl, "}")
 	for _, arg := range args {
 		for _, field := range s.fields(s.vars[arg], arg) {
@@ -695,7 +695,7 @@ func (s *state) procFor() {
 
 	s.cl = append(s.cl, end)
 	if counterVar != "" && counterVar != "_" {
-		s.Writeln(": $(( " + counterVar + "++ ))")
+		s.Writeln(": $(( " + counterVar + "+=1 ))")
 	}
 }
 

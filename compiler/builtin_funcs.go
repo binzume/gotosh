@@ -124,7 +124,7 @@ var InitBuiltInFuncs = func(s *state) {
 		"strconv.Itoa":     {retTypes: []Type{"string"}},
 		"shell.StatusCode": {retTypes: []Type{"int"}},
 		// slice
-		"len":    {retTypes: []Type{"int"}, applyFunc: func(e *shExpression, arg []string) { e.expr = "${#" + strings.Trim(trimQuote(arg[0]), "${}") + "}" }},
+		"len":    {retTypes: []Type{"int"}, applyFunc: func(e *shExpression, arg []string) { e.expr = "${#" + strings.Trim(trimQuote(arg[0]), "${}@") + "}" }},
 		"append": {retTypes: []Type{"[]any"}},
 	}
 }
