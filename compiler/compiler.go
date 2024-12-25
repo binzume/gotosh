@@ -277,15 +277,6 @@ func (s *state) fields(t Type, name string) []TypedName {
 	return ret
 }
 
-func (s *state) readName() string {
-	name := s.TokenText()
-	for tok := s.Scan(); tok == '.'; tok = s.Scan() {
-		s.Scan()
-		name += "." + s.TokenText()
-	}
-	return name
-}
-
 func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	var args []*shExpression
 	if p := strings.LastIndex(name, "."); p >= 0 {
@@ -351,7 +342,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 	var lastExpr *shExpression
 	var lastVar string
 	var expressionType Type = typeHint
-	var lhs, lhs_candidate []string
+	var lhs, lhs_candidate, values []string
 	var lastTok rune
 	for tok := s.Scan(); tok != scanner.EOF && (endToks != "" || strings.ContainsRune(".=*/%,:", lastTok) || s.Line == l); tok = s.Scan() {
 		t := s.TokenText()
@@ -374,33 +365,35 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			expressionType = "string"
 			t = "'" + strings.ReplaceAll(strings.Trim(t, "`"), "'", "\\'") + "'"
 		} else if tok == scanner.Ident && t == "range" {
-			t = " #RANGE# "
+			t = "#RANGE#"
 		} else if tok == '[' || tok == scanner.Ident && (t == "struct" || s.vars[t] == "" && s.types[Type(t)] != "") { // type
-			lastExpr = &shExpression{retTypes: []Type{s.readType(true)}}
+			typeHint = s.readType(true)
 			end := '}'
 			if s.Scan() == '(' {
 				end = ')'
 			}
 			for s.lastToken != scanner.EOF && s.lastToken != end {
 				elm := s.readExpression("", string(end), false)
-				lastExpr.values = append(lastExpr.values, elm.values...)
+				values = append(values, elm.values...)
 				if len(elm.values) == 0 {
-					lastExpr.values = append(lastExpr.values, elm.AsValue())
+					values = append(values, elm.AsValue())
 				}
 			}
 			t = ""
 		} else if tok == scanner.Ident {
-			t = s.readName()
+			t = s.TokenText()
+			for tok := s.Scan(); tok == '.'; tok = s.Scan() {
+				s.Scan()
+				t += "." + s.TokenText()
+			}
 			if s.lastToken != '(' && s.lastToken != '[' {
 				s.skipNextScan = true
 			}
 			if s.vars[t] != "" {
 				expressionType = s.vars[t]
 			}
-			if allowAssign && lhs == nil {
-				lhs_candidate = append(lhs_candidate, t)
-			}
 			ot := t
+			l := t
 			t = varName(t)
 			if s.vars[ot].IsArray() {
 				t += "[@]"
@@ -417,6 +410,10 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				} else if len(idx) >= 2 {
 					t += ":" + idx[0].AsValue() + ":$(( " + idx[1].AsValue() + " - " + idx[0].AsValue() + " ))"
 				}
+				l = t
+			}
+			if allowAssign && lhs == nil {
+				lhs_candidate = append(lhs_candidate, l)
 			}
 			if s.vars[ot] == "" && (s.lastToken == '(' || s.funcs[ot].expr != "") {
 				lastExpr = s.readFuncCall(ot, s.lastToken != '(')
@@ -449,6 +446,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			lhs = lhs_candidate
 			t = ""
 			expr = ""
+			tokens = -1
 		} else if tok == '.' || tok == '+' && expressionType == "string" || tok == '=' && expr == "" {
 			t = "" // skip
 		}
@@ -463,7 +461,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 		typeHint = expressionType
 	}
 	s.skipNextScan = s.skipNextScan || s.Line != l
-	e := &shExpression{expr: strings.TrimSpace(expr), retTypes: []Type{typeHint}, declare: declare, lhs: lhs}
+	e := &shExpression{expr: strings.TrimSpace(expr), retTypes: []Type{typeHint}, declare: declare, lhs: lhs, values: values}
 	if lastExpr != nil && (expr == lastExpr.expr || expr == lastExpr.AsValue()) {
 		lastExpr.lhs = e.lhs
 		lastExpr.declare = e.declare
@@ -491,15 +489,13 @@ func (s *state) writeExpr(e *shExpression, typ Type) {
 		if name != "_" && e.RetVarName(i) == "?" {
 			statusIndex = i
 		}
-		if typ != "" {
-			s.setType(name, typ)
-		} else if e.declare || s.vars[name] == "" {
-			if len(e.retTypes) > i {
-				s.setType(name, e.retTypes[i])
-			}
-		}
 	}
 	writeAssign := func(i int, v, vn string) {
+		if typ != "" {
+			s.setType(e.lhs[i], typ)
+		} else if e.declare && len(e.retTypes) > i {
+			s.setType(e.lhs[i], e.retTypes[i])
+		}
 		local := e.declare && s.funcName != ""
 		for vi, field := range s.fields(s.vars[e.lhs[i]], "") {
 			name := varName(e.lhs[i] + field.Name)
@@ -665,18 +661,17 @@ func (s *state) procFor() {
 	}
 
 	counterVar := ""
-	if s.lastToken == '{' && len(e.lhs) > 0 && strings.HasPrefix(e.expr, "#RANGE# ") {
+	if s.lastToken == '{' && len(e.lhs) > 0 && strings.HasPrefix(e.expr, "#RANGE#") {
 		counterVar = e.lhs[0]
 		v := "_"
 		if len(e.lhs) > 1 {
 			v = e.lhs[1]
 		}
 		if counterVar != "" && counterVar != "_" {
-			s.Writeln("local " + counterVar + "=-1")
-			s.setType(counterVar, "int")
+			s.writeExpr(&shExpression{lhs: []string{counterVar}, expr: "-1", declare: true}, "int")
 		}
 		s.setType(v, Type(strings.TrimPrefix(string(e.retTypes[0]), "[]")))
-		s.Writeln("for " + v + ` in ` + strings.TrimPrefix(e.expr, "#RANGE# ") + "; do :")
+		s.Writeln("for " + v + ` in ` + strings.TrimPrefix(e.expr, "#RANGE#") + strings.Join(e.values, " ") + "; do :")
 	} else {
 		cond := "true"
 		if e.AsValue() != "" {
