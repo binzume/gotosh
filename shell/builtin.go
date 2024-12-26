@@ -73,7 +73,7 @@ func NArgs() int {
 
 func Args() []string {
 	if currentArgs == nil {
-		currentArgs = os.Args
+		currentArgs = os.Args[1:]
 	}
 	return currentArgs
 }

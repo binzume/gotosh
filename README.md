@@ -62,10 +62,10 @@ func main() {
 
 fizz="Fizz"
 buzz="Buzz"
-function FizzBuzz() {
+FizzBuzz() {
   local n="$1"; shift
   local i=1
-  while [ $(( i<=n )) -ne 0 ]; do :
+  while [ $(( i <= n )) -ne 0 ]; do :
     if [ $(( i%15 == 0 )) -ne 0 ]; then :
       echo "$fizz""$buzz"
     elif [ $(( i%3 == 0 )) -ne 0 ]; then :
@@ -78,7 +78,7 @@ function FizzBuzz() {
   : $(( i++ )); done
 }
 
-function main() {
+main() {
   FizzBuzz 50
 }
 
@@ -223,8 +223,10 @@ var b2 = B{b: "abc"} // Not supproted
 
 ### slice
 
-sliceの実装はbash専用です。zshの場合は `setopt KSH_ARRAYS` を追加する必要があると思います。
+スライスの実装はbash専用です。zshの場合は `setopt KSH_ARRAYS` を追加する必要があると思います。
 また、関数の最後の引数以外ではスライスを渡すことはできません。
+
+配列をサポートしていないシェルでも `shell.Args()` やスライスリテラル(`[]int{1,2,3,4}`等)を for range ループで処理することは可能です。
 
 ## 関数
 
