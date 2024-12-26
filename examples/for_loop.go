@@ -15,13 +15,13 @@ func printArgs(_ []int) {
 
 func main() {
 	fmt.Println("loop 1:")
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		fmt.Println(i)
 	}
 
 	fmt.Println("loop 2:")
 	i := 0
-	for i < 10 {
+	for i < 5 {
 		fmt.Println(i)
 		i++
 	}
@@ -29,11 +29,19 @@ func main() {
 	fmt.Println("loop 3:")
 	i = 0
 	for {
-		if i > -10 {
+		if i > 5 {
 			break
 		}
 		fmt.Println(i)
 		i++
+	}
+
+	fmt.Println("loop continue:")
+	for i := 0; i < 10; i++ {
+		if i%2 == 0 {
+			continue
+		}
+		fmt.Println(i)
 	}
 
 	fmt.Println("shell.Args():")

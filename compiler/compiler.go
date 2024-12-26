@@ -99,6 +99,11 @@ func (f *shExpression) AsExec() string {
 	return f.expr
 }
 
+type loopInfo struct {
+	level        int
+	continueProc *shExpression
+}
+
 type state struct {
 	scanner.Scanner
 	imports      map[string]string
@@ -106,6 +111,7 @@ type state struct {
 	vars         map[string]Type
 	types        map[Type]Type
 	cl           []string
+	loopInfo     []loopInfo
 	lastToken    rune
 	funcName     string
 	packageName  string
@@ -172,6 +178,10 @@ func (s *state) Indent() {
 
 func (s *state) EndBlock() {
 	s.FlushLine()
+	for len(s.loopInfo) > 0 && s.loopInfo[len(s.loopInfo)-1].level >= len(s.cl)-1 {
+		s.writeExpr(s.loopInfo[len(s.loopInfo)-1].continueProc, "")
+		s.loopInfo = s.loopInfo[:len(s.loopInfo)-1]
+	}
 	t := s.cl[len(s.cl)-1]
 	s.cl = s.cl[:len(s.cl)-1]
 	s.bufLine = t + "\n" // for "else"
@@ -476,7 +486,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 		e.typ = "STR_CMP"
 	} else if tokens > 1 && (expressionType == "float32" || expressionType == "float64") {
 		e.typ = "FLOAT_EXPR"
-	} else if tokens > 1 && expressionType != "string" {
+	} else if tokens > 1 && expressionType != "string" && !expressionType.IsArray() {
 		e.typ = "INT_EXPR"
 	}
 	return e
@@ -659,17 +669,17 @@ func (s *state) procFor() {
 		e = s.readExpression("", "{", false)
 	}
 
-	counterVar := ""
-	if s.lastToken == '{' && strings.HasPrefix(e.expr, "#RANGE#") {
+	continueExpr := &shExpression{}
+	if strings.HasPrefix(e.expr, "#RANGE#") {
 		v := "_"
-		if len(e.lhs) > 1 {
-			v = e.lhs[1]
-		}
 		if len(e.lhs) > 0 && e.lhs[0] != "_" {
-			counterVar = e.lhs[0]
-			s.writeExpr(&shExpression{lhs: []string{counterVar}, expr: "-1", declare: e.declare}, "int")
+			s.writeExpr(&shExpression{lhs: []string{e.lhs[0]}, expr: "0", declare: e.declare}, "int")
+			continueExpr = &shExpression{typ: "INT_EXPR", expr: e.lhs[0] + "+=1"}
 		}
-		s.setType(v, Type(strings.TrimPrefix(string(e.retTypes[0]), "[]")))
+		if len(e.lhs) > 1 && e.lhs[1] != "_" {
+			v = e.lhs[1]
+			s.setType(v, Type(strings.TrimPrefix(string(e.retTypes[0]), "[]")))
+		}
 		s.Writeln("for " + v + ` in ` + strings.TrimPrefix(e.expr, "#RANGE#") + strings.Join(e.values, " ") + "; do :")
 	} else {
 		cond := "true"
@@ -677,20 +687,12 @@ func (s *state) procFor() {
 			cond = "[ " + e.AsValue() + " -ne 0 ]"
 		}
 		s.Writeln("while " + cond + "; do :")
-	}
-
-	end := "done"
-	if s.lastToken == ';' {
-		e = s.readExpression("", "{", false)
-		if e.AsExec() != "" {
-			end = e.AsExec() + "; done" // TODO continue...
+		if s.lastToken == ';' {
+			continueExpr = s.readExpression("", "{", false)
 		}
 	}
-
-	s.cl = append(s.cl, end)
-	if counterVar != "" {
-		s.Writeln(": $(( " + counterVar + "+=1 ))")
-	}
+	s.loopInfo = append(s.loopInfo, loopInfo{len(s.cl), continueExpr})
+	s.cl = append(s.cl, "done")
 }
 
 func (s *state) procIf() {
@@ -749,6 +751,9 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 			case "break":
 				s.Writeln("break")
 			case "continue":
+				if len(s.loopInfo) > 0 {
+					s.writeExpr(s.loopInfo[len(s.loopInfo)-1].continueProc, "")
+				}
 				s.Writeln("continue")
 			case "return":
 				s.procReturn()
