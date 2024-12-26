@@ -22,6 +22,8 @@ jobs:
       run: ./compare_output.sh hello_world
     - name: Test fizz_buzz
       run: ./compare_output.sh fizz_buzz
+    - name: Test for loop
+      run: ./compare_output.sh for_loop
     - name: Test string_sample
       run: ./compare_output.sh string_sample
     - name: Test read_stdin

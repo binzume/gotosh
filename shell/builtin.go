@@ -61,10 +61,12 @@ func SubStr(s string, pos, len int) string {
 }
 
 func Arg(n int) string {
-	if n >= len(os.Args) {
-		return ""
+	if n > 0 && n-1 < len(Args()) {
+		return Args()[n-1]
+	} else if len(os.Args) > 0 {
+		return os.Args[0]
 	}
-	return os.Args[n]
+	return ""
 }
 
 func NArgs() int {

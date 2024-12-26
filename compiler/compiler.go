@@ -118,7 +118,6 @@ type state struct {
 func newState() *state {
 	var s state
 	s.w = os.Stdout
-	s.imports = map[string]string{}
 	s.vars = map[string]Type{}
 	s.types = map[Type]Type{}
 	InitBuiltInFuncs(&s)
@@ -638,10 +637,10 @@ func (s *state) procFunc() {
 	s.cl = append(s.cl, "}")
 	for _, arg := range args {
 		for _, field := range s.fields(s.vars[arg], arg) {
-			if field.Type.IsArray() {
-				s.Writeln("local " + varName(field.Name) + `=("$@")`)
-			} else {
+			if !field.Type.IsArray() {
 				s.Writeln("local " + varName(field.Name) + `="$1"; shift`)
+			} else if field.Name != "_" {
+				s.Writeln("local " + varName(field.Name) + `=("$@")`)
 			}
 		}
 	}
@@ -661,14 +660,14 @@ func (s *state) procFor() {
 	}
 
 	counterVar := ""
-	if s.lastToken == '{' && len(e.lhs) > 0 && strings.HasPrefix(e.expr, "#RANGE#") {
-		counterVar = e.lhs[0]
+	if s.lastToken == '{' && strings.HasPrefix(e.expr, "#RANGE#") {
 		v := "_"
 		if len(e.lhs) > 1 {
 			v = e.lhs[1]
 		}
-		if counterVar != "" && counterVar != "_" {
-			s.writeExpr(&shExpression{lhs: []string{counterVar}, expr: "-1", declare: true}, "int")
+		if len(e.lhs) > 0 && e.lhs[0] != "_" {
+			counterVar = e.lhs[0]
+			s.writeExpr(&shExpression{lhs: []string{counterVar}, expr: "-1", declare: e.declare}, "int")
 		}
 		s.setType(v, Type(strings.TrimPrefix(string(e.retTypes[0]), "[]")))
 		s.Writeln("for " + v + ` in ` + strings.TrimPrefix(e.expr, "#RANGE#") + strings.Join(e.values, " ") + "; do :")
@@ -689,7 +688,7 @@ func (s *state) procFor() {
 	}
 
 	s.cl = append(s.cl, end)
-	if counterVar != "" && counterVar != "_" {
+	if counterVar != "" {
 		s.Writeln(": $(( " + counterVar + "+=1 ))")
 	}
 }
@@ -717,6 +716,7 @@ func (s *state) procElse() {
 func (s *state) Compile(r io.Reader, srcName string) error {
 	s.Init(r)
 	s.Filename = srcName
+	s.imports = map[string]string{}
 
 	for tok := s.ScanWC(); tok != scanner.EOF; tok = s.ScanWC() {
 		if tok == '}' && len(s.cl) > 0 {

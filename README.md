@@ -8,7 +8,7 @@ Goでコンパイルしたバイナリを実行するのが困難な環境のた
 
 Supported:
 
-- Types: `int`, `string`, `float64`, `[]int`, `[]string`, `struct`
+- Types: `int`, `string`, `float32/64`, `[]int`, `[]string`, `struct`
 - Go keywords: func, if, else, for, break, continue, const, var, struct, append, len, go
 
 TODO:
@@ -185,13 +185,13 @@ Goの文法をすべてサポートしているわけではありません。以
 
 ## 型
 
-- 利用可能な型は、`int`, `string`, `float32/64`, `[]int`, `[]string` のみです
-- floatの計算のためには `bc` コマンドが必要です
+- 利用可能な型は、`int`, `string`, `float32/64` とそれらの struct や slice です
+- floatの演算を行うためには `bc` コマンドが必要です
 - ポインタは無いのですべての値渡しです
 
 ### struct
 
-structのサポートはまだ途中です。埋め込み等が無い単純なstructのみサポートしています。
+structのサポートはまだ途中です。埋め込み等が無い単純なstructのみ対応しています。
 
 - sliceも入れることはできません
 - struct中にstructを直接定義できません
@@ -203,6 +203,7 @@ structのサポートはまだ途中です。埋め込み等が無い単純なst
 type A struct {
 	a int
 }
+
 // OK
 type B struct {
 	a A
