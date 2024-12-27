@@ -83,6 +83,13 @@ func (f *shExpression) AsValue() string {
 	return expr
 }
 
+func (f *shExpression) Values() []string {
+	if f.values != nil {
+		return f.values
+	}
+	return []string{f.AsValue()}
+}
+
 func (f *shExpression) RetVarName(i int) string {
 	if len(f.retTypes) > i && f.retTypes[i] == "StatusCode" {
 		return "?"
@@ -309,10 +316,8 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	var values []string
 	for _, e := range args {
 		for i := range e.retTypes {
-			if i == e.primaryIdx && len(e.values) > 0 {
-				values = append(values, e.values...)
-			} else if i == 0 {
-				values = append(values, e.AsValue())
+			if i == e.primaryIdx || i == 0 {
+				values = append(values, e.Values()...)
 			} else if e.primaryIdx != i {
 				values = append(values, `"`+varValue(e.RetVarName(i))+`"`) // FIXME
 			}
@@ -383,10 +388,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			}
 			for s.lastToken != scanner.EOF && s.lastToken != end {
 				elm := s.readExpression("", string(end), false)
-				values = append(values, elm.values...)
-				if len(elm.values) == 0 {
-					values = append(values, elm.AsValue())
-				}
+				values = append(values, elm.Values()...)
 			}
 			t = ""
 		} else if tok == scanner.Ident {
@@ -477,7 +479,8 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 		return lastExpr
 	} else if lastVar != "" && expr == lastVar {
 		e.expr = varValue(expr)
-		if fields := s.fields(e.retTypes[0], ""); len(fields) > 0 && fields[0].Name != "" {
+		if fields := s.fields(e.retTypes[0], ""); len(fields) == 0 || fields[0].Name != "" {
+			e.values = []string{}
 			for _, f := range fields {
 				e.values = append(e.values, `"`+varValue(varName(expr+f.Name))+`"`)
 			}
@@ -519,7 +522,7 @@ func (s *state) writeExpr(e *shExpression, typ Type) {
 				}
 				tv := v
 				if field.Type.IsArray() {
-					tv = "(" + strings.Join(e.values, " ") + v + ")"
+					tv = "(" + strings.Join(e.Values(), " ") + ")"
 				} else if len(e.values) > vi {
 					tv = e.values[vi]
 				} else if tv == "" && field.Type == "int" {
@@ -562,23 +565,18 @@ func (s *state) procReturn() {
 	var status *shExpression
 	for i, t := range f.retTypes {
 		e := s.readExpression("", "", false)
+		values := e.Values()
 		if i == 0 && len(e.retTypes) == len(f.retTypes) && (len(e.retTypes) >= 2 || e.stdout) {
 			s.Writeln(e.expr + "; return $?")
 			return
 		} else if t == "StatusCode" {
 			status = e
 		} else if i == f.primaryIdx {
-			if len(e.values) > 0 {
-				s.WriteString("echo " + e.values[0] + "; ")
-			} else {
-				s.WriteString("echo " + e.AsValue() + "; ")
-			}
-		} else if fields := s.fields(t, f.RetVarName(i)); len(fields) == len(e.values) {
+			s.WriteString("echo " + strings.Join(values, " ") + "; ")
+		} else if fields := s.fields(t, f.RetVarName(i)); len(values) >= len(fields) {
 			for vi, field := range fields {
-				s.WriteString(varName(field.Name) + "=" + e.values[vi] + "; ")
+				s.WriteString(varName(field.Name) + "=" + values[vi] + "; ")
 			}
-		} else {
-			s.WriteString(f.RetVarName(i) + "=" + e.AsValue() + "; ")
 		}
 		if s.lastToken != ',' {
 			break
