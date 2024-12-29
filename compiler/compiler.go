@@ -297,16 +297,15 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	var args []*shExpression
 	if p := strings.LastIndex(name, "."); p >= 0 {
 		ns := name[:p]
-		name = name[p+1:]
 		if t, ok := s.vars[ns]; ok {
-			name = t.MemberName(name)
+			name = t.MemberName(name[p+1:])
 			var v []string
 			for _, field := range s.fields(t, ns) {
 				v = append(v, `"$`+varName(field.Name)+`"`)
 			}
 			args = []*shExpression{{expr: `"` + varValue(varName(ns)) + `"`, values: v, retTypes: []Type{t}}}
 		} else if pkg, ok := s.imports[ns]; ok {
-			name = path.Base(pkg) + "." + name
+			name = path.Base(pkg) + "." + name[p+1:]
 		}
 	}
 	for !variable && s.lastToken != scanner.EOF && s.lastToken != ')' {
@@ -415,9 +414,11 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				for s.lastToken != scanner.EOF && s.lastToken != ']' {
 					idx = append(idx, s.readExpression("int", ":]", false))
 				}
-				if len(idx) == 1 {
+				if len(idx) == 1 && expressionType != "string" {
 					t = ot + "[" + idx[0].AsValue() + "]"
 					expressionType = Type(strings.TrimPrefix(string(expressionType), "[]"))
+				} else if len(idx) == 1 {
+					t += ":" + idx[0].AsValue() + ":1"
 				} else if len(idx) >= 2 {
 					t += ":" + idx[0].AsValue() + ":$(( " + idx[1].AsValue() + " - " + idx[0].AsValue() + " ))"
 				}
@@ -566,7 +567,7 @@ func (s *state) procReturn() {
 	for i, t := range f.retTypes {
 		e := s.readExpression("", "", false)
 		values := e.Values()
-		if i == 0 && len(e.retTypes) == len(f.retTypes) && (len(e.retTypes) >= 2 || e.stdout) {
+		if i == 0 && len(e.retTypes) == len(f.retTypes) && (e.primaryIdx < 0 || e.stdout) {
 			s.Writeln(e.expr + "; return $?")
 			return
 		} else if t == "StatusCode" {
@@ -583,7 +584,7 @@ func (s *state) procReturn() {
 		}
 	}
 	if status != nil {
-		s.Writeln("return", status.AsValue())
+		s.Writeln("return " + status.AsValue())
 	} else {
 		s.Writeln("return")
 	}
