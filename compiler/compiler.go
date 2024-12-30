@@ -333,14 +333,13 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 		f.applyFunc(e, values)
 	} else if strings.Contains(expr, "{0}") || strings.Contains(expr, "{1}") || strings.Contains(expr, "{f0}") {
 		for i, a := range args {
-			expr = strings.ReplaceAll(expr, fmt.Sprintf("{%d}", i), a.AsValue())
-			expr = strings.ReplaceAll(expr, fmt.Sprintf("{*%d}", i), varName(a.AsValue()))
+			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{%d}", i), a.AsValue())
+			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{*%d}", i), varName(a.AsValue()))
 			if a.typ == "FLOAT_EXPR" {
-				expr = strings.ReplaceAll(expr, fmt.Sprintf("{f%d}", i), a.expr)
+				e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{f%d}", i), a.expr)
 			}
-			expr = strings.ReplaceAll(expr, fmt.Sprintf("{f%d}", i), a.AsValue())
+			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{f%d}", i), a.AsValue())
 		}
-		e.expr = expr
 	} else {
 		e.expr = strings.TrimSpace(e.expr + " " + strings.Join(values, " "))
 	}
@@ -399,11 +398,13 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			if s.lastToken != '(' && s.lastToken != '[' {
 				s.skipNextScan = true
 			}
+			if s.vars[t] == "" && s.vars[s.packageName+"."+t] != "" {
+				t = s.packageName + "." + t
+			}
 			if s.vars[t] != "" {
 				expressionType = s.vars[t]
 			}
 			ot := t
-			l := t
 			t = varName(t)
 			if s.vars[ot].IsArray() {
 				t += "[@]"
@@ -422,10 +423,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				} else if len(idx) >= 2 {
 					t += ":" + idx[0].AsValue() + ":$(( " + idx[1].AsValue() + " - " + idx[0].AsValue() + " ))"
 				}
-				l = t
-			}
-			if allowAssign && lhs == nil {
-				lhs_candidate = append(lhs_candidate, l)
+				ot = t
 			}
 			if s.vars[ot] == "" && (s.lastToken == '(' || s.funcs[ot].expr != "") {
 				lastExpr = s.readFuncCall(ot, s.lastToken != '(')
@@ -437,6 +435,9 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				t = " " + varValue(t) + " "
 			} else if expressionType == "string" || expressionType.IsArray() {
 				t = "\"" + varValue(t) + "\""
+			}
+			if allowAssign && lhs == nil {
+				lhs_candidate = append(lhs_candidate, ot)
 			}
 		} else if strings.Contains("=!<>", t) && s.Peek() == '=' && lastTok != '<' && lastTok != '>' {
 			s.Scan()
@@ -549,12 +550,15 @@ func (s *state) writeExpr(e *shExpression, typ Type) {
 }
 
 func (s *state) procVar(names []string) {
-	var typ Type
+	prefix := ""
+	if s.funcName == "" && s.packageName != "main" {
+		prefix = s.packageName + "."
+	}
 	for ; len(names) == 0 || s.lastToken == ','; s.Scan() {
 		s.Scan()
-		names = append(names, s.TokenText())
+		names = append(names, prefix+s.TokenText())
 	}
-	typ = s.readType(true)
+	var typ = s.readType(true)
 	e := s.readExpression(typ, "", false)
 	e.lhs = names
 	e.declare = true
@@ -654,10 +658,9 @@ func (s *state) procFunc() {
 		}
 	}
 	s.funcs[name] = f
+	s.funcs[s.packageName+"."+name] = f
 	if n, found := strings.CutPrefix(name, "GOTOSH_FUNC_"); found {
 		s.funcs[strings.ReplaceAll(n, "_", ".")] = f
-	} else if name[0] >= 'A' && name[0] <= 'Z' {
-		s.funcs[s.packageName+"."+name] = f
 	}
 }
 
