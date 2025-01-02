@@ -41,7 +41,7 @@ func (t Type) IsArray() bool {
 }
 
 func (t Type) MemberName(name string) string {
-	return strings.TrimPrefix(string(t), "*") + "__" + name
+	return strings.TrimPrefix(string(t), "*") + "." + name
 }
 
 type TypedName struct {
@@ -252,6 +252,8 @@ func (s *state) readType(scaned bool) Type {
 			t += s.TokenText()
 			s.Scan()
 			t += s.TokenText()
+		} else if _, ok := s.types[Type(s.packageName+"."+t)]; ok {
+			t = s.packageName + "." + t
 		}
 	} else if s.lastToken == '*' {
 		t = s.TokenText()
@@ -323,7 +325,7 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 		}
 	}
 
-	expr := name
+	expr := strings.ReplaceAll(name, ".", "__")
 	f, ok := s.funcs[name]
 	if ok {
 		expr = f.expr
@@ -344,6 +346,18 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 		e.expr = strings.TrimSpace(e.expr + " " + strings.Join(values, " "))
 	}
 	return e
+}
+
+func (s *state) readValues() (values []string) {
+	end := ')'
+	if s.Scan() == '{' {
+		end = '}'
+	}
+	for s.lastToken != scanner.EOF && s.lastToken != end {
+		elm := s.readExpression("", string(end), false)
+		values = append(values, elm.Values()...)
+	}
+	return values
 }
 
 func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) *shExpression {
@@ -378,16 +392,9 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			t = "'" + strings.ReplaceAll(strings.Trim(t, "`"), "'", "\\'") + "'"
 		} else if tok == scanner.Ident && t == "range" {
 			t = "#RANGE#"
-		} else if tok == '[' || tok == scanner.Ident && (t == "struct" || s.vars[t] == "" && s.types[Type(t)] != "") { // type
+		} else if tok == '[' || tok == scanner.Ident && (t == "struct" || t == "map") { // type
 			typeHint = s.readType(true)
-			end := '}'
-			if s.Scan() == '(' {
-				end = ')'
-			}
-			for s.lastToken != scanner.EOF && s.lastToken != end {
-				elm := s.readExpression("", string(end), false)
-				values = append(values, elm.Values()...)
-			}
+			values = s.readValues()
 			t = ""
 		} else if tok == scanner.Ident {
 			t = s.TokenText()
@@ -395,10 +402,8 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				s.Scan()
 				t += "." + s.TokenText()
 			}
-			if s.lastToken != '(' && s.lastToken != '[' {
-				s.skipNextScan = true
-			}
-			if s.vars[t] == "" && s.vars[s.packageName+"."+t] != "" {
+			s.skipNextScan = true
+			if s.vars[t] == "" && s.vars[s.packageName+"."+t] != "" || s.types[Type(s.packageName+"."+t)] != "" {
 				t = s.packageName + "." + t
 			}
 			if s.vars[t] != "" {
@@ -411,6 +416,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			}
 			lastVar = t
 			if s.lastToken == '[' {
+				s.Scan()
 				var idx []*shExpression
 				for s.lastToken != scanner.EOF && s.lastToken != ']' {
 					idx = append(idx, s.readExpression("int", ":]", false))
@@ -425,7 +431,14 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				}
 				ot = t
 			}
-			if s.vars[ot] == "" && (s.lastToken == '(' || s.funcs[ot].expr != "") {
+			if s.types[Type(ot)] != "" {
+				values = s.readValues()
+				typeHint = Type(ot)
+				t = ""
+			} else if s.vars[ot] == "" && (s.lastToken == '(' || s.funcs[ot].expr != "") {
+				if s.lastToken == '(' {
+					s.Scan()
+				}
 				lastExpr = s.readFuncCall(ot, s.lastToken != '(')
 				t = lastExpr.AsValue()
 				if len(lastExpr.retTypes) > 0 && lastExpr.retTypes[0] != "" {
@@ -625,9 +638,9 @@ func (s *state) procFunc() {
 		}
 	}
 	s.Scan() // '(' or '{' or Ident
-	f := shExpression{expr: name, primaryIdx: -1}
+	f := shExpression{expr: strings.ReplaceAll(name, ".", "__"), primaryIdx: -1}
 	if s.packageName != "main" {
-		f.expr = s.packageName + "__" + name
+		f.expr = s.packageName + "__" + f.expr
 	}
 	stdoutIndex := -1
 	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
@@ -743,7 +756,7 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 				s.Scan()
 				name := s.TokenText()
 				s.Scan()
-				s.types[Type(name)] = s.readType(s.lastToken != '=')
+				s.types[Type(s.packageName+"."+name)] = s.readType(s.lastToken != '=')
 			case "for":
 				s.procFor()
 			case "if":
@@ -796,8 +809,8 @@ func CompileFiles(sources []string) error {
 			return err
 		}
 	}
-	if _, ok := s.funcs["main"]; ok {
-		s.Writeln("main \"${@}\"")
+	if f, ok := s.funcs["main.main"]; ok {
+		s.Writeln(f.expr + " \"${@}\"")
 	}
 	return nil
 }

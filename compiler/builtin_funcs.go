@@ -84,22 +84,22 @@ var InitBuiltInFuncs = func(s *state) {
 		"os.Pipe": {expr: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && _tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )) && _tmp1=$(( ++GOTOSH_fd ))` +
 			` && eval "exec $_tmp1<>\"$_tmp/f\" $_tmp0<\"$_tmp/f\"" && rm -rf $_tmp`,
 			retTypes: []Type{"*os.File", "*os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Open":              {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0<'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Create":            {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0>'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Mkdir":             {expr: "mkdir {0}", retTypes: []Type{"StatusCode"}},
-		"os.MkdirAll":          {expr: "mkdir -p {0}", retTypes: []Type{"StatusCode"}},
-		"os.Remove":            {expr: "rm -f", retTypes: []Type{"StatusCode"}},
-		"os.RemoveAll":         {expr: "rm -rf", retTypes: []Type{"StatusCode"}},
-		"os.Rename":            {expr: "mv", retTypes: []Type{"StatusCode"}},
-		"os.File__WriteString": {expr: `echo -n {1} >&{0}`},
-		"os.File__Close":       {expr: `eval "exec {0}<&- {0}>&-"`},
-		"os.File__Fd":          {expr: `{0}`, retTypes: []Type{"int"}},
-		"exec.Command":         {expr: "echo -n ", retTypes: []Type{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
-		"exec.Cmd__Output":     {expr: "bash -c", retTypes: []Type{"string", "StatusCode"}, stdout: true},
-		"reflect.TypeOf":       {retTypes: []Type{"string"}, applyFunc: func(e *shExpression, arg []string) { e.expr = `"` + string(s.vars[varName(arg[0])]) + `"` }},
-		"runtime.Compiler":     {expr: "'gotosh'", retTypes: []Type{"string"}},               // constant
-		"runtime.GOARCH":       {expr: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
-		"runtime.GOOS":         {expr: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
+		"os.Open":             {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0<'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Create":           {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0>'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Mkdir":            {expr: "mkdir {0}", retTypes: []Type{"StatusCode"}},
+		"os.MkdirAll":         {expr: "mkdir -p {0}", retTypes: []Type{"StatusCode"}},
+		"os.Remove":           {expr: "rm -f", retTypes: []Type{"StatusCode"}},
+		"os.RemoveAll":        {expr: "rm -rf", retTypes: []Type{"StatusCode"}},
+		"os.Rename":           {expr: "mv", retTypes: []Type{"StatusCode"}},
+		"os.File.WriteString": {expr: `echo -n {1} >&{0}`},
+		"os.File.Close":       {expr: `eval "exec {0}<&- {0}>&-"`},
+		"os.File.Fd":          {expr: `{0}`, retTypes: []Type{"int"}},
+		"exec.Command":        {expr: "echo -n ", retTypes: []Type{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
+		"exec.Cmd.Output":     {expr: "bash -c", retTypes: []Type{"string", "StatusCode"}, stdout: true},
+		"reflect.TypeOf":      {retTypes: []Type{"string"}, applyFunc: func(e *shExpression, arg []string) { e.expr = `"` + string(s.vars[varName(arg[0])]) + `"` }},
+		"runtime.Compiler":    {expr: "'gotosh'", retTypes: []Type{"string"}},               // constant
+		"runtime.GOARCH":      {expr: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
+		"runtime.GOOS":        {expr: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
 		// math (using bc)
 		"math.Pi":   {expr: "3.141592653589793", retTypes: []Type{"float64"}}, // constant
 		"math.E":    {expr: "2.718281828459045", retTypes: []Type{"float64"}}, // constant
