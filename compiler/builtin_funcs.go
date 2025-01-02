@@ -35,6 +35,7 @@ var InitBuiltInFuncs = func(s *state) {
 				asValueFunc["FLOAT_EXPR"] = func(e *shExpression) string { return `$(echo "` + e.expr + `" | bc -l)` }
 			}
 		}, retTypes: []Type{"struct{:}"}, primaryIdx: -1},
+		"shell.Files": {applyFunc: func(e *shExpression, arg []string) { e.expr = trimQuote(arg[0]) }, retTypes: []Type{"[]string"}},
 		// fmt
 		"fmt.Print":   {expr: "echo -n"},
 		"fmt.Println": {expr: "echo"},
@@ -86,6 +87,11 @@ var InitBuiltInFuncs = func(s *state) {
 			retTypes: []Type{"*os.File", "*os.File", "StatusCode"}, primaryIdx: -1},
 		"os.Open":             {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0<'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
 		"os.Create":           {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0>'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Stat":             {expr: `[ -e {0} ] && echo {0}`, retTypes: []Type{"fs.FileInfo", "StatusCode"}, stdout: true},
+		"fs.FileInfo.Name":    {expr: `basename {0}`, retTypes: []Type{"string"}, stdout: true},
+		"fs.FileInfo.Size":    {expr: `stat -c %s {0}`, retTypes: []Type{"int"}, stdout: true},
+		"fs.FileInfo.Mode":    {typ: "INT_EXPR", expr: `8#$(stat -c %a {0})`, retTypes: []Type{"int"}},
+		"fs.FileInfo.IsDir":   {expr: `[ -d {0} ] && echo 1 || echo 0`, retTypes: []Type{"bool"}, stdout: true},
 		"os.Mkdir":            {expr: "mkdir {0}", retTypes: []Type{"StatusCode"}},
 		"os.MkdirAll":         {expr: "mkdir -p {0}", retTypes: []Type{"StatusCode"}},
 		"os.Remove":           {expr: "rm -f", retTypes: []Type{"StatusCode"}},

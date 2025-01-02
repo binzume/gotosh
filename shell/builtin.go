@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -50,6 +51,11 @@ func ReadLine(r io.Reader) (string, StatusCode) {
 
 func Read() (string, StatusCode) {
 	return ReadLine(os.Stdin)
+}
+
+func Files(pattern string) []string {
+	r, _ := filepath.Glob(pattern)
+	return r
 }
 
 func Export(s ...string) {
