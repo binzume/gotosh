@@ -15,6 +15,7 @@ func main() {
 	fmt.Println("s=", s)
 	fmt.Println("len(s)", len(s))
 	fmt.Println("slice string", s[1+2:5+3])
+	fmt.Println("s[5]", string(s[5]))
 
 	s0 := "123" + "ABC" + "\"qqq\""
 	s0 = "zzz" + s0 + " yyy"
@@ -54,7 +55,7 @@ func main() {
 
 	s = ""
 	for s != "....." {
-		s = s + "."
+		s += "."
 	}
 	fmt.Println(s)
 }

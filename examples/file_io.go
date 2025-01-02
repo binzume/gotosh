@@ -39,4 +39,12 @@ func main() {
 
 	os.MkdirAll("testdir/foo/bar", 0)
 	os.RemoveAll("testdir")
+
+	for _, f := range shell.Files("examples/*.go") {
+		st, err := os.Stat(f)
+		if err != nil {
+			continue
+		}
+		fmt.Println(st.Name(), st.Size())
+	}
 }

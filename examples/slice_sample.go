@@ -10,8 +10,7 @@ func printSlice(msg string, s []int) {
 }
 
 func getSlice() []int {
-	a := []int{1, 2, 3, 4}
-	return a
+	return []int{1, 2, 3, 4}
 }
 
 func main() {
@@ -19,8 +18,16 @@ func main() {
 	a = append(a, 123, 456, 789)
 	a = append(a, 111, 444, 777)
 	printSlice("a:", a)
+	a[1] = 111
+	a[1+1] = 222
+	a[3] = 333
+	printSlice("a:", a)
 	a = getSlice()
 	printSlice("a:", a)
+
+	for i, v := range a {
+		fmt.Println(i, v)
+	}
 
 	// range is not supported yet
 	// for i, v := range a {

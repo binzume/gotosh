@@ -2,6 +2,7 @@ package tinytui
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 
@@ -22,6 +23,12 @@ const LineRT = "┤"
 const LineLT = "├"
 const LineBT = "┴"
 const Bullet = "·"
+
+const BrailleZero = '⠀'
+
+const ASCII_LineH = "-"
+const ASCII_LineV = "|"
+const ASCII_LineC = "+"
 
 const Black = 0
 const Red = 1
@@ -94,15 +101,27 @@ func MoveRight(n int) {
 
 func Box(x, y, w, h int) {
 	MoveTo(x, y)
-	fmt.Print(LineTL + strings.Repeat(LineH, w-2) + LineTR)
-	for i := y + 1; i < y+h; i++ {
-		MoveTo(x, i)
-		fmt.Print(LineV)
-		MoveRight(w - 2)
-		fmt.Print(LineV)
+	if strings.Contains(os.Getenv("LANG"), ".UTF-8") {
+		fmt.Print(LineTL + strings.Repeat(LineH, w-2) + LineTR)
+		for i := y + 1; i < y+h; i++ {
+			MoveTo(x, i)
+			fmt.Print(LineV)
+			MoveRight(w - 2)
+			fmt.Print(LineV)
+		}
+		MoveTo(x, y+h)
+		fmt.Print(LineBL + strings.Repeat(LineH, w-2) + LineBR)
+	} else {
+		fmt.Print(ASCII_LineC + strings.Repeat(ASCII_LineH, w-2) + ASCII_LineC)
+		for i := y + 1; i < y+h; i++ {
+			MoveTo(x, i)
+			fmt.Print(ASCII_LineV)
+			MoveRight(w - 2)
+			fmt.Print(ASCII_LineV)
+		}
+		MoveTo(x, y+h)
+		fmt.Print(ASCII_LineC + strings.Repeat(ASCII_LineH, w-2) + ASCII_LineC)
 	}
-	MoveTo(x, y+h)
-	fmt.Print(LineBL + strings.Repeat(LineH, w-2) + LineBR)
 }
 
 func BoxC(x, y, w, h int, c string) {
