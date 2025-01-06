@@ -40,10 +40,6 @@ func (t Type) IsArray() bool {
 	return strings.HasPrefix(string(t), "[]")
 }
 
-func (t Type) MemberName(name string) string {
-	return strings.TrimPrefix(string(t), "*") + "." + name
-}
-
 type TypedName struct {
 	Name string
 	Type Type
@@ -98,7 +94,7 @@ func (f *shExpression) RetVarName(i int) string {
 }
 
 func (f *shExpression) AsExec() string {
-	if f.stdout && f.expr != "" {
+	if f.stdout {
 		return f.expr + " >/dev/null"
 	} else if f.typ != "" {
 		return ": " + f.AsValue()
@@ -271,20 +267,14 @@ func (s *state) setType(name string, t Type) {
 		t = special
 	}
 	s.vars[name] = t
-	for s.types[t] != "" {
-		t = s.types[t]
-	}
-	f := strings.Split(string(t), ":")
+	f := strings.Split(string(s.resolveType(t)), ":")
 	for i := 1; i < len(f)-2; i += 2 {
 		s.setType(name+"."+f[i], Type(f[i+1]))
 	}
 }
 
 func (s *state) fields(t Type, name string) []TypedName {
-	for s.types[t] != "" {
-		t = s.types[t]
-	}
-	f := strings.Split(string(t), ":")
+	f := strings.Split(string(s.resolveType(t)), ":")
 	if len(f) == 1 {
 		return []TypedName{{name, t}}
 	}
@@ -295,12 +285,19 @@ func (s *state) fields(t Type, name string) []TypedName {
 	return ret
 }
 
+func (s *state) resolveType(t Type) Type {
+	for s.types[t] != "" {
+		t = s.types[t]
+	}
+	return t
+}
+
 func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	var args []*shExpression
 	if p := strings.LastIndex(name, "."); p >= 0 {
 		ns := name[:p]
 		if t, ok := s.vars[ns]; ok {
-			name = t.MemberName(name[p+1:])
+			name = strings.TrimPrefix(string(t), "*") + "." + name[p+1:]
 			var v []string
 			for _, field := range s.fields(t, ns) {
 				v = append(v, `"$`+varName(field.Name)+`"`)
@@ -310,8 +307,11 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 			name = path.Base(pkg) + "." + name[p+1:]
 		}
 	}
-	for !variable && s.lastToken != scanner.EOF && s.lastToken != ')' {
-		args = append(args, s.readExpression("", ",)", false))
+	if !variable {
+		s.Scan()
+		for s.lastToken != scanner.EOF && s.lastToken != ')' {
+			args = append(args, s.readExpression("", ",)", false))
+		}
 	}
 
 	var values []string
@@ -403,13 +403,14 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				t += "." + s.TokenText()
 			}
 			s.skipNextScan = true
-			if s.vars[t] == "" && s.vars[s.packageName+"."+t] != "" || s.types[Type(s.packageName+"."+t)] != "" {
+			if s.vars[t] == "" && (s.vars[s.packageName+"."+t] != "" || s.types[Type(s.packageName+"."+t)] != "") {
 				t = s.packageName + "." + t
 			}
-			if s.vars[t] != "" {
-				expressionType = s.vars[t]
+			if vt, ok := s.vars[t]; ok {
+				expressionType = vt
 			}
 			ot := t
+			lt := t
 			t = varName(t)
 			if s.vars[ot].IsArray() {
 				t += "[@]"
@@ -429,16 +430,13 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				} else if len(idx) >= 2 {
 					t += ":" + idx[0].AsValue() + ":$(( " + idx[1].AsValue() + " - " + idx[0].AsValue() + " ))"
 				}
-				ot = t
+				lt = t
 			}
-			if s.types[Type(ot)] != "" {
+			if _, ok := s.types[Type(ot)]; ok {
 				values = s.readValues()
 				typeHint = Type(ot)
 				t = ""
-			} else if s.vars[ot] == "" && (s.lastToken == '(' || s.funcs[ot].expr != "") {
-				if s.lastToken == '(' {
-					s.Scan()
-				}
+			} else if _, ok := s.vars[ot]; !ok {
 				lastExpr = s.readFuncCall(ot, s.lastToken != '(')
 				t = lastExpr.AsValue()
 				if len(lastExpr.retTypes) > 0 && lastExpr.retTypes[0] != "" {
@@ -450,7 +448,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				t = "\"" + varValue(t) + "\""
 			}
 			if allowAssign && lhs == nil {
-				lhs_candidate = append(lhs_candidate, ot)
+				lhs_candidate = append(lhs_candidate, lt)
 			}
 		} else if strings.Contains("=!<>", t) && s.Peek() == '=' && lastTok != '<' && lastTok != '>' {
 			s.Scan()
@@ -620,7 +618,7 @@ func (s *state) procFunc() {
 		argTypes++
 		s.Scan() // .
 		s.Scan() // name
-		name = t.MemberName(s.TokenText())
+		name = strings.TrimPrefix(string(t), "*") + "." + s.TokenText()
 	}
 	s.funcName = name
 	for tok = s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
