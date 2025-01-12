@@ -354,10 +354,9 @@ func (s *state) readValues() (values []string) {
 		end = '}'
 	}
 	for s.lastToken != scanner.EOF && s.lastToken != end {
-		elm := s.readExpression("", string(end), false)
-		values = append(values, elm.Values()...)
+		values = append(values, s.readExpression("", string(end), false).Values()...)
 	}
-	return values
+	return
 }
 
 func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) *shExpression {
@@ -367,7 +366,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 	declare := false
 	var lastExpr *shExpression
 	var lastVar string
-	var expressionType Type = typeHint
+	var expressionType Type = "int"
 	var lhs, lhs_candidate, values []string
 	var lastTok rune
 	for tok := s.Scan(); tok != scanner.EOF && (endToks != "" || strings.ContainsRune(".=*/%,:", lastTok) || s.Line == l); tok = s.Scan() {
@@ -382,6 +381,8 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			} else {
 				t = lastExpr.AsValue()
 			}
+		} else if tok == scanner.Int {
+			t = strings.Replace(strings.Replace(t, "0o", "8#", 1), "0b", "2#", 1)
 		} else if tok == scanner.Float {
 			expressionType = "float32"
 		} else if tok == scanner.String {
