@@ -60,6 +60,7 @@ type shExpression struct {
 	expr       string
 	typ        string
 	stdout     bool
+	argTypes   []Type
 	retTypes   []Type
 	primaryIdx int
 	lhs        []string
@@ -93,7 +94,7 @@ func (f *shExpression) RetVarName(i int) string {
 	if len(f.retTypes) > i && f.retTypes[i] == "StatusCode" {
 		return "?"
 	}
-	return "_tmp" + fmt.Sprint(i)
+	return "GOTOSH_RET_" + fmt.Sprint(i)
 }
 
 func (f *shExpression) AsExec() string {
@@ -114,7 +115,7 @@ type state struct {
 	scanner.Scanner
 	imports      map[string]string
 	funcs        map[string]shExpression
-	vars         map[string]Type
+	vars         map[string]Type // => TypedName
 	types        map[Type]Type
 	cl           []string
 	loopInfo     []loopInfo
@@ -230,6 +231,7 @@ func (s *state) readType(scaned bool) Type {
 			t += s.TokenText()
 			t += string(s.readType(false))
 			s.Scan() // ]
+			t += string(s.readType(false))
 			t += s.TokenText()
 		} else if t == "struct" {
 			tok := s.Scan() // {
@@ -317,9 +319,21 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 		}
 	}
 
+	expr := strings.ReplaceAll(name, ".", "__")
+	f, ok := s.funcs[name]
+	if ok {
+		expr = f.expr
+	}
+	e := &shExpression{expr: expr, typ: f.typ, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
+
 	var values []string
 	for _, e := range args {
-		for i := range e.retTypes {
+		for i, t := range e.retTypes {
+			if len(f.argTypes) > len(values) && f.argTypes[len(values)].IsPtr() && !t.IsPtr() && len(e.Values()) > 0 {
+				values = append(values, "\""+varName(e.expr)+"\"")
+				continue
+			}
+
 			if i == e.primaryIdx || i == 0 {
 				values = append(values, e.Values()...)
 			} else if e.primaryIdx != i {
@@ -328,12 +342,6 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 		}
 	}
 
-	expr := strings.ReplaceAll(name, ".", "__")
-	f, ok := s.funcs[name]
-	if ok {
-		expr = f.expr
-	}
-	e := &shExpression{expr: expr, typ: f.typ, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
 	if f.applyFunc != nil {
 		f.applyFunc(e, values)
 	} else if strings.Contains(expr, "{0}") || strings.Contains(expr, "{1}") || strings.Contains(expr, "{f0}") {
@@ -608,6 +616,8 @@ func (s *state) procReturn() {
 			status = e
 		} else if i == f.primaryIdx {
 			s.WriteString("echo " + strings.Join(values, " ") + "; ")
+		} else if t.IsPtr() && len(values) == 1 {
+			s.WriteString(f.RetVarName(i) + "=${!" + varName(values[0]) + "}; ")
 		} else if fields := s.fields(t, f.RetVarName(i)); len(values) >= len(fields) {
 			for vi, field := range fields {
 				s.WriteString(varName(field.Name) + "=" + values[vi] + "; ")
@@ -626,15 +636,15 @@ func (s *state) procReturn() {
 
 func (s *state) procFunc() {
 	var args []string
-	var argTypes = 0
+	var argTypes []Type
 	tok := s.Scan()
 	name := s.TokenText()
 	if tok == '(' {
 		s.Scan()
 		args = append(args, s.TokenText())
 		t := s.readType(false)
-		s.setType(args[argTypes], t)
-		argTypes++
+		s.setType(args[len(argTypes)], t)
+		argTypes = append(argTypes, t)
 		s.Scan() // .
 		s.Scan() // name
 		name = strings.TrimPrefix(string(t), "*") + "." + s.TokenText()
@@ -649,20 +659,20 @@ func (s *state) procFunc() {
 			args = append(args, s.TokenText())
 		} else {
 			t := s.readType(true)
-			for ; len(args) > argTypes; argTypes++ {
-				s.setType(args[argTypes], t)
+			for ; len(args) > len(argTypes); argTypes = append(argTypes, t) {
+				s.setType(args[len(argTypes)], t)
 			}
 		}
 	}
 	s.Scan() // '(' or '{' or Ident
-	f := shExpression{expr: strings.ReplaceAll(name, ".", "__"), primaryIdx: -1}
+	f := shExpression{expr: strings.ReplaceAll(name, ".", "__"), primaryIdx: -1, argTypes: argTypes}
 	if s.packageName != "main" {
 		f.expr = s.packageName + "__" + f.expr
 	}
 	stdoutIndex := -1
 	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
 		t := s.readType(s.lastToken != '(' && s.lastToken != ',')
-		if _, ok := specialReturnTypes[t]; !ok && len(s.fields(t, "")) == 1 {
+		if _, ok := specialReturnTypes[t]; !ok && len(s.fields(t, "")) == 1 && !t.IsPtr() {
 			stdoutIndex = len(f.retTypes)
 		}
 		f.retTypes = append(f.retTypes, t)
@@ -681,7 +691,7 @@ func (s *state) procFunc() {
 	for _, arg := range args {
 		if s.vars[arg].IsPtr() {
 			for _, field := range s.fields(Type(strings.TrimPrefix(string(s.vars[arg]), "*")), "") {
-				s.Writeln("declare -n " + arg + varName(field.Name) + "=${1}" + varName(field.Name)) // for bash
+				s.Writeln("[ \"$1\" != '" + arg + "' ] && declare -n " + arg + varName(field.Name) + "=${1}" + varName(field.Name)) // for bash
 			}
 			s.Writeln("shift")
 			continue
