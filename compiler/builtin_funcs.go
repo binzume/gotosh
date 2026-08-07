@@ -15,8 +15,8 @@ var InitBuiltInFuncs = func(s *state) {
 		"shell.Exit":          {expr: "exit"},
 		"shell.Export":        {expr: "export"},
 		"shell.Exec":          {retTypes: []Type{"string", "StatusCode"}, stdout: true},
-		"shell.Read":          {expr: `IFS= read -r -s _tmp0`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1},
-		"shell.ReadLine":      {expr: `IFS= read -r -s _tmp0 <&{0}`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1},
+		"shell.Read":          {expr: `IFS= read -r -s GOTOSH_RET_0`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1},
+		"shell.ReadLine":      {expr: `IFS= read -r -s GOTOSH_RET_0 <&{0}`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1},
 		"shell.SubStr":        {expr: "\"${{*0}:{1}:{2}}\"", retTypes: []Type{"string"}},
 		"shell.Arg":           {expr: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true},
 		"shell.Args":          {expr: `"$@"`, retTypes: []Type{"[]string"}},
@@ -62,9 +62,9 @@ var InitBuiltInFuncs = func(s *state) {
 		"strings.Contains": {expr: "case {0} in (*{1}*) echo 1;; (*) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true},
 		"strings.IndexAny": {expr: "expr '(' index {0} {1} ')' - 1", retTypes: []Type{"int"}, stdout: true},
 		// os
-		"os.Stdin":    {expr: "0", retTypes: []Type{"*os.File"}},         // variable
-		"os.Stdout":   {expr: "1", retTypes: []Type{"*os.File"}},         // variable
-		"os.Stderr":   {expr: "1", retTypes: []Type{"*os.File"}},         // variable
+		"os.Stdin":    {expr: "0", retTypes: []Type{"os.File"}},          // variable
+		"os.Stdout":   {expr: "1", retTypes: []Type{"os.File"}},          // variable
+		"os.Stderr":   {expr: "1", retTypes: []Type{"os.File"}},          // variable
 		"os.Args":     {expr: `"$0" "$@"`, retTypes: []Type{"[]string"}}, // variable
 		"os.Exit":     {expr: "exit"},
 		"os.Getwd":    {expr: "pwd", retTypes: []Type{"string", "StatusCode"}, stdout: true},
@@ -82,11 +82,11 @@ var InitBuiltInFuncs = func(s *state) {
 		"os.Setenv": {applyFunc: func(e *shExpression, arg []string) {
 			e.expr = "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
-		"os.Pipe": {expr: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && _tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )) && _tmp1=$(( ++GOTOSH_fd ))` +
-			` && eval "exec $_tmp1<>\"$_tmp/f\" $_tmp0<\"$_tmp/f\"" && rm -rf $_tmp`,
-			retTypes: []Type{"*os.File", "*os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Open":             {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0<'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Create":           {expr: `_tmp0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $_tmp0>'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Pipe": {expr: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && GOTOSH_RET_0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )) && GOTOSH_RET_1=$(( ++GOTOSH_fd ))` +
+			` && eval "exec $GOTOSH_RET_1<>\"$_tmp/f\" $GOTOSH_RET_0<\"$_tmp/f\"" && rm -rf $_tmp`,
+			retTypes: []Type{"os.File", "os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Open":             {expr: `GOTOSH_RET_0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $GOTOSH_RET_0<'{0}'"`, retTypes: []Type{"os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Create":           {expr: `GOTOSH_RET_0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $GOTOSH_RET_0>'{0}'"`, retTypes: []Type{"os.File", "StatusCode"}, primaryIdx: -1},
 		"os.Stat":             {expr: `[ -e {0} ] && echo {0}`, retTypes: []Type{"fs.FileInfo", "StatusCode"}, stdout: true},
 		"fs.FileInfo.Name":    {expr: `basename {0}`, retTypes: []Type{"string"}, stdout: true},
 		"fs.FileInfo.Size":    {expr: `stat -c %s {0}`, retTypes: []Type{"int"}, stdout: true},
