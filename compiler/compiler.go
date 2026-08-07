@@ -17,7 +17,7 @@ func trimQuote(s string) string {
 }
 
 func varName(s string) string {
-	return strings.ReplaceAll(strings.TrimSuffix(strings.Trim(trimQuote(s), "${} "), "[@]"), ".", "__")
+	return strings.TrimPrefix(strings.ReplaceAll(strings.TrimSuffix(strings.Trim(trimQuote(s), "${} "), "[@]"), ".", "__"), "!")
 }
 
 func varValue(name string) string {
@@ -38,6 +38,9 @@ type Type string
 
 func (t Type) IsArray() bool {
 	return strings.HasPrefix(string(t), "[]")
+}
+func (t Type) IsPtr() bool {
+	return strings.HasPrefix(string(t), "*")
 }
 
 type TypedName struct {
@@ -267,7 +270,7 @@ func (s *state) setType(name string, t Type) {
 		t = special
 	}
 	s.vars[name] = t
-	f := strings.Split(string(s.resolveType(t)), ":")
+	f := strings.Split(string(s.resolveType(Type(strings.TrimPrefix(string(t), "*")))), ":")
 	for i := 1; i < len(f)-2; i += 2 {
 		s.setType(name+"."+f[i], Type(f[i+1]))
 	}
@@ -397,7 +400,12 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			typeHint = s.readType(true)
 			values = s.readValues()
 			t = ""
-		} else if tok == scanner.Ident {
+		} else if tok == scanner.Ident || ((tok == '*' || tok == '&') && strings.ContainsRune("=+-*/([\x00", lastTok)) {
+			derefPtr := tok == '*'
+			refPtr := tok == '&'
+			if derefPtr || refPtr {
+				s.Scan()
+			}
 			t = s.TokenText()
 			for tok := s.Scan(); tok == '.'; tok = s.Scan() {
 				s.Scan()
@@ -433,6 +441,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				}
 				lt = t
 			}
+
 			if _, ok := s.types[Type(ot)]; ok {
 				values = s.readValues()
 				typeHint = Type(ot)
@@ -447,6 +456,13 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				t = " " + varValue(t) + " "
 			} else if expressionType == "string" || expressionType.IsArray() {
 				t = "\"" + varValue(t) + "\""
+			}
+			if derefPtr {
+				expressionType = Type(strings.TrimPrefix(string(expressionType), "*"))
+			} else if refPtr {
+				t = "\"" + varName(t) + "\""
+				lt = t
+				expressionType = Type("*" + string(expressionType))
 			}
 			if allowAssign && lhs == nil {
 				lhs_candidate = append(lhs_candidate, lt)
@@ -525,7 +541,9 @@ func (s *state) writeExpr(e *shExpression, typ Type) {
 		local := e.declare && s.funcName != ""
 		for vi, field := range s.fields(s.vars[e.lhs[i]], "") {
 			name := varName(e.lhs[i] + field.Name)
-			if local {
+			if s.vars[e.lhs[i]].IsPtr() {
+				s.WriteString("declare -n ")
+			} else if local {
 				s.WriteString("local ")
 			}
 			if vn != "" && len(e.retTypes) > i {
@@ -661,6 +679,14 @@ func (s *state) procFunc() {
 	s.Writeln(f.expr + "() {")
 	s.cl = append(s.cl, "}")
 	for _, arg := range args {
+		if s.vars[arg].IsPtr() {
+			for _, field := range s.fields(Type(strings.TrimPrefix(string(s.vars[arg]), "*")), "") {
+				s.Writeln("declare -n " + arg + varName(field.Name) + "=${1}" + varName(field.Name)) // for bash
+			}
+			s.Writeln("shift")
+			continue
+		}
+
 		for _, field := range s.fields(s.vars[arg], arg) {
 			if !field.Type.IsArray() {
 				s.Writeln("local " + varName(field.Name) + `="$1"; shift`)
@@ -785,6 +811,8 @@ func (s *state) Compile(r io.Reader, srcName string) error {
 				s.skipNextScan = true
 				s.writeExpr(s.readExpression("", "", true), "")
 			}
+		} else if tok == '*' || tok == '&' {
+			s.writeExpr(s.readExpression("", "", true), "")
 		} else {
 			fmt.Printf("# Unknown token %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
 		}
