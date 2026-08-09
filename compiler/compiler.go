@@ -9,6 +9,8 @@ import (
 	"text/scanner"
 )
 
+const RET_PREFIX = "GOTOSH_RET_"
+
 func trimQuote(s string) string {
 	if len(s) >= 2 && s[0] == '\'' {
 		return strings.ReplaceAll(s[1:len(s)-1], "\\'", "'")
@@ -17,11 +19,11 @@ func trimQuote(s string) string {
 }
 
 func varName(s string) string {
-	return strings.TrimPrefix(strings.ReplaceAll(strings.TrimSuffix(strings.Trim(trimQuote(s), "${} "), "[@]"), ".", "__"), "!")
+	return strings.ReplaceAll(strings.TrimSuffix(strings.Trim(trimQuote(s), "${!} "), "[@]"), ".", "__")
 }
 
 func varValue(name string) string {
-	if strings.ContainsAny(name, "#@[:]") {
+	if strings.ContainsAny(name, "#@[:]!") {
 		return "${" + name + "}"
 	}
 	return "$" + name
@@ -38,9 +40,6 @@ type Type string
 
 func (t Type) IsArray() bool {
 	return strings.HasPrefix(string(t), "[]")
-}
-func (t Type) IsPtr() bool {
-	return strings.HasPrefix(string(t), "*")
 }
 
 type TypedName struct {
@@ -67,6 +66,7 @@ type shExpression struct {
 	declare    bool
 	values     []string // for array, slice, struct
 	applyFunc  func(f *shExpression, arg []string)
+	template   bool
 }
 
 func (f *shExpression) AsValue() string {
@@ -94,7 +94,7 @@ func (f *shExpression) RetVarName(i int) string {
 	if len(f.retTypes) > i && f.retTypes[i] == "StatusCode" {
 		return "?"
 	}
-	return "GOTOSH_RET_" + fmt.Sprint(i)
+	return RET_PREFIX + fmt.Sprint(i)
 }
 
 func (f *shExpression) AsExec() string {
@@ -115,7 +115,7 @@ type state struct {
 	scanner.Scanner
 	imports      map[string]string
 	funcs        map[string]shExpression
-	vars         map[string]Type // => TypedName
+	vars         map[string]TypedName
 	types        map[Type]Type
 	cl           []string
 	loopInfo     []loopInfo
@@ -131,10 +131,14 @@ type state struct {
 func newState() *state {
 	var s state
 	s.w = os.Stdout
-	s.vars = map[string]Type{}
-	s.types = map[Type]Type{}
+	s.vars = map[string]TypedName{}
+	s.types = map[Type]Type{"*os.File": "int"} // Use fd as *os.File
 	InitBuiltInFuncs(&s)
 	return &s
+}
+
+func (s *state) IsPtr(t Type) bool {
+	return strings.HasPrefix(string(s.resolveType(t)), "*")
 }
 
 func (s *state) Scan() rune {
@@ -267,15 +271,16 @@ func (s *state) readType(scaned bool) Type {
 	}
 	return Type(strings.TrimPrefix(t, "shell."))
 }
-func (s *state) setType(name string, t Type) {
+func (s *state) setType(name string, t Type) TypedName {
 	if special, ok := specialReturnTypes[t]; ok {
 		t = special
 	}
-	s.vars[name] = t
+	s.vars[name] = TypedName{name, t}
 	f := strings.Split(string(s.resolveType(Type(strings.TrimPrefix(string(t), "*")))), ":")
 	for i := 1; i < len(f)-2; i += 2 {
 		s.setType(name+"."+f[i], Type(f[i+1]))
 	}
+	return s.vars[name]
 }
 
 func (s *state) fields(t Type, name string) []TypedName {
@@ -301,13 +306,13 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	var args []*shExpression
 	if p := strings.LastIndex(name, "."); p >= 0 {
 		ns := name[:p]
-		if t, ok := s.vars[ns]; ok {
-			name = strings.TrimPrefix(string(t), "*") + "." + name[p+1:]
-			var v []string
-			for _, field := range s.fields(t, ns) {
-				v = append(v, `"$`+varName(field.Name)+`"`)
+		if v, ok := s.vars[ns]; ok {
+			name = strings.TrimPrefix(string(v.Type), "*") + "." + name[p+1:]
+			var values []string
+			for _, field := range s.fields(v.Type, ns) {
+				values = append(values, `"$`+varName(field.Name)+`"`)
 			}
-			args = []*shExpression{{expr: `"` + varValue(varName(ns)) + `"`, values: v, retTypes: []Type{t}}}
+			args = []*shExpression{{expr: `"` + varValue(varName(ns)) + `"`, values: values, retTypes: []Type{v.Type}}}
 		} else if pkg, ok := s.imports[ns]; ok {
 			name = path.Base(pkg) + "." + name[p+1:]
 		}
@@ -329,7 +334,7 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	var values []string
 	for _, e := range args {
 		for i, t := range e.retTypes {
-			if len(f.argTypes) > len(values) && f.argTypes[len(values)].IsPtr() && !t.IsPtr() && len(e.Values()) > 0 {
+			if len(f.argTypes) > len(values) && s.IsPtr(f.argTypes[len(values)]) && !s.IsPtr(t) && len(e.Values()) > 0 {
 				values = append(values, "\""+varName(e.expr)+"\"")
 				continue
 			}
@@ -344,14 +349,17 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 
 	if f.applyFunc != nil {
 		f.applyFunc(e, values)
-	} else if strings.Contains(expr, "{0}") || strings.Contains(expr, "{1}") || strings.Contains(expr, "{f0}") {
+	} else if f.template {
+		e.expr = strings.ReplaceAll(e.expr, "{0R}", RET_PREFIX+"0")
+		e.expr = strings.ReplaceAll(e.expr, "{1R}", RET_PREFIX+"1")
 		for i, a := range args {
-			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{%d}", i), a.AsValue())
-			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{*%d}", i), varName(a.AsValue()))
+			value := a.AsValue()
+			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{%d}", i), value)
+			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{*%d}", i), varName(value))
 			if a.typ == "FLOAT_EXPR" {
-				e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{f%d}", i), a.expr)
+				value = a.expr
 			}
-			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{f%d}", i), a.AsValue())
+			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{%dF}", i), value)
 		}
 	} else {
 		e.expr = strings.TrimSpace(e.expr + " " + strings.Join(values, " "))
@@ -411,6 +419,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 		} else if tok == scanner.Ident || ((tok == '*' || tok == '&') && strings.ContainsRune("=+-*/([\x00", lastTok)) {
 			derefPtr := tok == '*'
 			refPtr := tok == '&'
+			tok = scanner.Ident
 			if derefPtr || refPtr {
 				s.Scan()
 			}
@@ -420,16 +429,16 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				t += "." + s.TokenText()
 			}
 			s.skipNextScan = true
-			if s.vars[t] == "" && (s.vars[s.packageName+"."+t] != "" || s.types[Type(s.packageName+"."+t)] != "") {
+			if s.vars[t].Type == "" && (s.vars[s.packageName+"."+t].Type != "" || s.types[Type(s.packageName+"."+t)] != "") {
 				t = s.packageName + "." + t
 			}
 			if vt, ok := s.vars[t]; ok {
-				expressionType = vt
+				expressionType = vt.Type
 			}
 			ot := t
 			lt := t
 			t = varName(t)
-			if s.vars[ot].IsArray() {
+			if s.vars[ot].Type.IsArray() {
 				t += "[@]"
 			}
 			lastVar = t
@@ -516,6 +525,9 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 		lastExpr.declare = e.declare
 		return lastExpr
 	} else if lastVar != "" && expr == lastVar {
+		if s.IsPtr(typeHint) {
+			expr = "!" + expr // bash: !, zsh: (!)
+		}
 		e.expr = varValue(expr)
 		if fields := s.fields(e.retTypes[0], ""); len(fields) == 0 || fields[0].Name != "" {
 			e.values = []string{}
@@ -547,10 +559,10 @@ func (s *state) writeExpr(e *shExpression, typ Type) {
 			s.setType(e.lhs[i], e.retTypes[i])
 		}
 		local := e.declare && s.funcName != ""
-		for vi, field := range s.fields(s.vars[e.lhs[i]], "") {
+		for vi, field := range s.fields(s.vars[e.lhs[i]].Type, "") {
 			name := varName(e.lhs[i] + field.Name)
-			if s.vars[e.lhs[i]].IsPtr() {
-				s.WriteString("declare -n ")
+			if s.IsPtr(s.vars[e.lhs[i]].Type) {
+				s.WriteString("declare -n ") // Need to re-declare for updating pointer as well.
 			} else if local {
 				s.WriteString("local ")
 			}
@@ -616,8 +628,6 @@ func (s *state) procReturn() {
 			status = e
 		} else if i == f.primaryIdx {
 			s.WriteString("echo " + strings.Join(values, " ") + "; ")
-		} else if t.IsPtr() && len(values) == 1 {
-			s.WriteString(f.RetVarName(i) + "=${!" + varName(values[0]) + "}; ")
 		} else if fields := s.fields(t, f.RetVarName(i)); len(values) >= len(fields) {
 			for vi, field := range fields {
 				s.WriteString(varName(field.Name) + "=" + values[vi] + "; ")
@@ -658,7 +668,15 @@ func (s *state) procFunc() {
 			}
 			args = append(args, s.TokenText())
 		} else {
+			if tok == '.' { // ...
+				s.Scan()
+				s.Scan()
+				s.Scan()
+			}
 			t := s.readType(true)
+			if tok == '.' {
+				t = Type("[]" + string(t))
+			}
 			for ; len(args) > len(argTypes); argTypes = append(argTypes, t) {
 				s.setType(args[len(argTypes)], t)
 			}
@@ -672,7 +690,7 @@ func (s *state) procFunc() {
 	stdoutIndex := -1
 	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
 		t := s.readType(s.lastToken != '(' && s.lastToken != ',')
-		if _, ok := specialReturnTypes[t]; !ok && len(s.fields(t, "")) == 1 && !t.IsPtr() {
+		if _, ok := specialReturnTypes[t]; !ok && len(s.fields(t, "")) == 1 && !s.IsPtr(t) {
 			stdoutIndex = len(f.retTypes)
 		}
 		f.retTypes = append(f.retTypes, t)
@@ -688,16 +706,16 @@ func (s *state) procFunc() {
 
 	s.Writeln(f.expr + "() {")
 	s.cl = append(s.cl, "}")
-	for _, arg := range args {
-		if s.vars[arg].IsPtr() {
-			for _, field := range s.fields(Type(strings.TrimPrefix(string(s.vars[arg]), "*")), "") {
-				s.Writeln("[ \"$1\" != '" + arg + "' ] && declare -n " + arg + varName(field.Name) + "=${1}" + varName(field.Name)) // for bash
+	for i, arg := range args {
+		if s.IsPtr(s.vars[arg].Type) {
+			for _, field := range s.fields(Type(strings.TrimPrefix(string(argTypes[i]), "*")), "") {
+				s.Writeln("[ \"$1\" != '" + arg + "' ] && declare -n " + arg + varName(field.Name) + "=\"$1\"" + varName(field.Name)) // for bash
 			}
 			s.Writeln("shift")
 			continue
 		}
 
-		for _, field := range s.fields(s.vars[arg], arg) {
+		for _, field := range s.fields(argTypes[i], arg) {
 			if !field.Type.IsArray() {
 				s.Writeln("local " + varName(field.Name) + `="$1"; shift`)
 			} else if field.Name != "_" {

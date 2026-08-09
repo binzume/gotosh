@@ -7,26 +7,45 @@ type PointerTest struct {
 	Value int    `tag:"name value"`
 }
 
-func (p *PointerTest) S() {
-	fmt.Println(p.Name)
-	p.Value = 123
+func (p *PointerTest) PtrTest() {
+	p.Value += 10
 	p.Name += ", world"
 }
 
-func Add(p *int, n int, s *string) *int {
+func (p PointerTest) ValueTest() {
+	p.Name += ", world"
+	p.Value = 123
+	fmt.Println(p.Name, p.Value)
+}
+
+func Add(p *int, n int, s *string) (*int, *string) {
 	*p += n
-	*p++
 	*s += "a"
-	return p
+	return p, s
 }
 
 func main() {
-	p := &PointerTest{"hell2o", 0}
-	p.S()
 	x := 10
-	b := &x
+	p1 := &x
+	p2 := p1
+	p3 := *p1
+	fmt.Println(*p1, *p2, p3)
+	x++
+	fmt.Println(*p1, *p2, p3)
+	*p2++
+	fmt.Println(*p1, *p2, p3)
+	p3++
+	fmt.Println(*p1, *p2, p3)
+	// p1, p2 = p2, p1
+	// fmt.Println(*p1, *p2, p3)
 	msg := "a"
-	z := Add(&x, 2, &msg)
-	x += 200
-	fmt.Println(x, msg, "age", p.Name, p.Value, "p", *b, 2**b, *z)
+	z, _ := Add(&x, 2, &msg)
+	fmt.Println(*p1, *p2, p3, msg, *z)
+	fmt.Println(*p1, 2**p1, *p1*3)
+
+	p := &PointerTest{"Hello", 1}
+	p.ValueTest()
+	fmt.Println(p.Name, p.Value)
+	p.PtrTest()
+	fmt.Println(p.Name, p.Value)
 }

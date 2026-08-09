@@ -15,10 +15,10 @@ var InitBuiltInFuncs = func(s *state) {
 		"shell.Exit":          {expr: "exit"},
 		"shell.Export":        {expr: "export"},
 		"shell.Exec":          {retTypes: []Type{"string", "StatusCode"}, stdout: true},
-		"shell.Read":          {expr: `IFS= read -r -s GOTOSH_RET_0`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1},
-		"shell.ReadLine":      {expr: `IFS= read -r -s GOTOSH_RET_0 <&{0}`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1},
-		"shell.SubStr":        {expr: "\"${{*0}:{1}:{2}}\"", retTypes: []Type{"string"}},
-		"shell.Arg":           {expr: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true},
+		"shell.Read":          {expr: `IFS= read -r -s {0R}`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1, template: true},
+		"shell.ReadLine":      {expr: `IFS= read -r -s {0R} <&{0}`, retTypes: []Type{"string", "StatusCode"}, primaryIdx: -1, template: true},
+		"shell.SubStr":        {expr: "\"${{*0}:{1}:{2}}\"", retTypes: []Type{"string"}, template: true},
+		"shell.Arg":           {expr: `eval echo \${{0}}`, retTypes: []Type{"string"}, stdout: true, template: true},
 		"shell.Args":          {expr: `"$@"`, retTypes: []Type{"[]string"}},
 		"shell.SetArgs":       {expr: `set -- `},
 		"shell.NArgs":         {expr: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
@@ -49,22 +49,22 @@ var InitBuiltInFuncs = func(s *state) {
 		"fmt.Fprintln": {applyFunc: func(e *shExpression, arg []string) { e.expr = "echo " + strings.Join(arg[1:], " ") + " >&" + arg[0] }},
 		"fmt.Fprintf":  {applyFunc: func(e *shExpression, arg []string) { e.expr = "printf " + strings.Join(arg[1:], " ") + " >&" + arg[0] }},
 		// strings
-		"strings.ReplaceAll": {expr: "\"${{*0}//{1}/{2}}\"", retTypes: []Type{"string"}},
-		"strings.ToUpper":    {expr: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []Type{"string"}, stdout: true},
-		"strings.ToLower":    {expr: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []Type{"string"}, stdout: true},
-		"strings.TrimSpace":  {expr: "echo {0}| sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []Type{"string"}, stdout: true},
-		"strings.TrimPrefix": {expr: "\"${{*0}#{1}}\"", retTypes: []Type{"string"}},
-		"strings.TrimSuffix": {expr: "\"${{*0}%{1}}\"", retTypes: []Type{"string"}},
+		"strings.ReplaceAll": {expr: "\"${{*0}//{1}/{2}}\"", retTypes: []Type{"string"}, template: true},
+		"strings.ToUpper":    {expr: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []Type{"string"}, stdout: true, template: true},
+		"strings.ToLower":    {expr: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []Type{"string"}, stdout: true, template: true},
+		"strings.TrimSpace":  {expr: "echo {0}|sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []Type{"string"}, stdout: true, template: true},
+		"strings.TrimPrefix": {expr: "\"${{*0}#{1}}\"", retTypes: []Type{"string"}, template: true},
+		"strings.TrimSuffix": {expr: "\"${{*0}%{1}}\"", retTypes: []Type{"string"}, template: true},
 		"strings.Split": {retTypes: []Type{"[]string"}, stdout: true, applyFunc: func(e *shExpression, arg []string) {
 			e.expr = "IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\""
 		}},
-		"strings.Join":     {expr: "IFS={1}; echo \"${{*0}[*]}\"", retTypes: []Type{"string"}, stdout: true},
-		"strings.Contains": {expr: "case {0} in (*{1}*) echo 1;; (*) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true},
-		"strings.IndexAny": {expr: "expr '(' index {0} {1} ')' - 1", retTypes: []Type{"int"}, stdout: true},
+		"strings.Join":     {expr: "IFS={1} {0R}=\"${{*0}[*]}\"", retTypes: []Type{"string"}, primaryIdx: -1, template: true},
+		"strings.Contains": {expr: "case {0} in (*{1}*) echo 1;; (*) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true, template: true},
+		"strings.IndexAny": {expr: "expr '(' index {0} {1} ')' - 1", retTypes: []Type{"int"}, stdout: true, template: true},
 		// os
-		"os.Stdin":    {expr: "0", retTypes: []Type{"os.File"}},          // variable
-		"os.Stdout":   {expr: "1", retTypes: []Type{"os.File"}},          // variable
-		"os.Stderr":   {expr: "1", retTypes: []Type{"os.File"}},          // variable
+		"os.Stdin":    {expr: "0", retTypes: []Type{"*os.File"}},         // variable
+		"os.Stdout":   {expr: "1", retTypes: []Type{"*os.File"}},         // variable
+		"os.Stderr":   {expr: "1", retTypes: []Type{"*os.File"}},         // variable
 		"os.Args":     {expr: `"$0" "$@"`, retTypes: []Type{"[]string"}}, // variable
 		"os.Exit":     {expr: "exit"},
 		"os.Getwd":    {expr: "pwd", retTypes: []Type{"string", "StatusCode"}, stdout: true},
@@ -82,46 +82,46 @@ var InitBuiltInFuncs = func(s *state) {
 		"os.Setenv": {applyFunc: func(e *shExpression, arg []string) {
 			e.expr = "export " + trimQuote(arg[0]) + "=" + arg[1]
 		}},
-		"os.Pipe": {expr: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && GOTOSH_RET_0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )) && GOTOSH_RET_1=$(( ++GOTOSH_fd ))` +
-			` && eval "exec $GOTOSH_RET_1<>\"$_tmp/f\" $GOTOSH_RET_0<\"$_tmp/f\"" && rm -rf $_tmp`,
-			retTypes: []Type{"os.File", "os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Open":             {expr: `GOTOSH_RET_0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $GOTOSH_RET_0<'{0}'"`, retTypes: []Type{"os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Create":           {expr: `GOTOSH_RET_0=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec $GOTOSH_RET_0>'{0}'"`, retTypes: []Type{"os.File", "StatusCode"}, primaryIdx: -1},
-		"os.Stat":             {expr: `[ -e {0} ] && echo {0}`, retTypes: []Type{"fs.FileInfo", "StatusCode"}, stdout: true},
-		"fs.FileInfo.Name":    {expr: `basename {0}`, retTypes: []Type{"string"}, stdout: true},
-		"fs.FileInfo.Size":    {expr: `stat -c %s {0}`, retTypes: []Type{"int"}, stdout: true},
-		"fs.FileInfo.Mode":    {typ: "INT_EXPR", expr: `8#$(stat -c %a {0})`, retTypes: []Type{"int"}},
-		"fs.FileInfo.IsDir":   {expr: `[ -d {0} ] && echo 1 || echo 0`, retTypes: []Type{"bool"}, stdout: true},
-		"os.Mkdir":            {expr: "mkdir {0}", retTypes: []Type{"StatusCode"}},
-		"os.MkdirAll":         {expr: "mkdir -p {0}", retTypes: []Type{"StatusCode"}},
+		"os.Pipe": {expr: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && {0R}=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )) && {1R}=$(( ++GOTOSH_fd ))` +
+			` && eval "exec ${1R}<>\"$_tmp/f\" ${0R}<\"$_tmp/f\"" && rm -rf $_tmp`,
+			retTypes: []Type{"*os.File", "*os.File", "StatusCode"}, primaryIdx: -1},
+		"os.Open":             {expr: `{0R}=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec ${0R}<'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1, template: true},
+		"os.Create":           {expr: `{0R}=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec ${0R}>'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1, template: true},
+		"os.Stat":             {expr: `[ -e {0} ] && echo {0}`, retTypes: []Type{"fs.FileInfo", "StatusCode"}, stdout: true, template: true},
+		"fs.FileInfo.Name":    {expr: `basename {0}`, retTypes: []Type{"string"}, stdout: true, template: true},
+		"fs.FileInfo.Size":    {expr: `stat -c %s {0}`, retTypes: []Type{"int"}, stdout: true, template: true},
+		"fs.FileInfo.Mode":    {typ: "INT_EXPR", expr: `8#$(stat -c %a {0})`, retTypes: []Type{"int"}, template: true},
+		"fs.FileInfo.IsDir":   {expr: `[ -d {0} ] && echo 1 || echo 0`, retTypes: []Type{"bool"}, stdout: true, template: true},
+		"os.Mkdir":            {expr: "mkdir {0}", retTypes: []Type{"StatusCode"}, template: true},
+		"os.MkdirAll":         {expr: "mkdir -p {0}", retTypes: []Type{"StatusCode"}, template: true},
 		"os.Remove":           {expr: "rm -f", retTypes: []Type{"StatusCode"}},
 		"os.RemoveAll":        {expr: "rm -rf", retTypes: []Type{"StatusCode"}},
 		"os.Rename":           {expr: "mv", retTypes: []Type{"StatusCode"}},
-		"os.File.WriteString": {expr: `echo -n {1} >&{0}`},
-		"os.File.Close":       {expr: `eval "exec {0}<&- {0}>&-"`},
-		"os.File.Fd":          {expr: `{0}`, retTypes: []Type{"int"}},
+		"os.File.WriteString": {expr: `echo -n {1} >&{0}`, template: true},
+		"os.File.Close":       {expr: `eval "exec {0}<&- {0}>&-"`, template: true},
+		"os.File.Fd":          {expr: `{0}`, retTypes: []Type{"int"}, template: true},
 		"exec.Command":        {expr: "echo -n ", retTypes: []Type{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
 		"exec.Cmd.Output":     {expr: "bash -c", retTypes: []Type{"string", "StatusCode"}, stdout: true},
-		"reflect.TypeOf":      {retTypes: []Type{"string"}, applyFunc: func(e *shExpression, arg []string) { e.expr = `"` + string(s.vars[varName(arg[0])]) + `"` }},
+		"reflect.TypeOf":      {retTypes: []Type{"string"}, applyFunc: func(e *shExpression, arg []string) { e.expr = `"` + string(s.vars[varName(arg[0])].Type) + `"` }},
 		"runtime.Compiler":    {expr: "'gotosh'", retTypes: []Type{"string"}},               // constant
 		"runtime.GOARCH":      {expr: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
 		"runtime.GOOS":        {expr: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
 		// math (using bc)
 		"math.Pi":   {expr: "3.141592653589793", retTypes: []Type{"float64"}}, // constant
 		"math.E":    {expr: "2.718281828459045", retTypes: []Type{"float64"}}, // constant
-		"math.Sqrt": {typ: "FLOAT_EXPR", expr: "sqrt({f0})", retTypes: []Type{"float64"}},
-		"math.Pow":  {typ: "FLOAT_EXPR", expr: "e(l({f0})*{f1})", retTypes: []Type{"float64"}},
-		"math.Exp":  {typ: "FLOAT_EXPR", expr: "e({f0})", retTypes: []Type{"float64"}},
-		"math.Log":  {typ: "FLOAT_EXPR", expr: "l({f0})", retTypes: []Type{"float64"}},
-		"math.Sin":  {typ: "FLOAT_EXPR", expr: "s({f0})", retTypes: []Type{"float64"}},
-		"math.Cos":  {typ: "FLOAT_EXPR", expr: "c({f0})", retTypes: []Type{"float64"}},
-		"math.Tan":  {typ: "FLOAT_EXPR", expr: "x={f0}; s(x)/c(x)", retTypes: []Type{"float64"}},
-		"math.Atan": {typ: "FLOAT_EXPR", expr: "a({f0})", retTypes: []Type{"float64"}},
-		"math.Sinh": {typ: "FLOAT_EXPR", expr: "x={f0}; ((e(x)-e(-x))/2)", retTypes: []Type{"float64"}},
-		"math.Cosh": {typ: "FLOAT_EXPR", expr: "x={f0}; ((e(x)+e(-x))/2)", retTypes: []Type{"float64"}},
-		"math.Tanh": {typ: "FLOAT_EXPR", expr: "x={f0}; ((e(x)-e(-x))/(e(x)+e(-x)))", retTypes: []Type{"float64"}},
+		"math.Sqrt": {typ: "FLOAT_EXPR", expr: "sqrt({0F})", retTypes: []Type{"float64"}, template: true},
+		"math.Pow":  {typ: "FLOAT_EXPR", expr: "e(l({0F})*{1F})", retTypes: []Type{"float64"}, template: true},
+		"math.Exp":  {typ: "FLOAT_EXPR", expr: "e({0F})", retTypes: []Type{"float64"}, template: true},
+		"math.Log":  {typ: "FLOAT_EXPR", expr: "l({0F})", retTypes: []Type{"float64"}, template: true},
+		"math.Sin":  {typ: "FLOAT_EXPR", expr: "s({0F})", retTypes: []Type{"float64"}, template: true},
+		"math.Cos":  {typ: "FLOAT_EXPR", expr: "c({0F})", retTypes: []Type{"float64"}, template: true},
+		"math.Tan":  {typ: "FLOAT_EXPR", expr: "x={0F}; s(x)/c(x)", retTypes: []Type{"float64"}, template: true},
+		"math.Atan": {typ: "FLOAT_EXPR", expr: "a({0F})", retTypes: []Type{"float64"}, template: true},
+		"math.Sinh": {typ: "FLOAT_EXPR", expr: "x={0F}; ((e(x)-e(-x))/2)", retTypes: []Type{"float64"}, template: true},
+		"math.Cosh": {typ: "FLOAT_EXPR", expr: "x={0F}; ((e(x)+e(-x))/2)", retTypes: []Type{"float64"}, template: true},
+		"math.Tanh": {typ: "FLOAT_EXPR", expr: "x={0F}; ((e(x)-e(-x))/(e(x)+e(-x)))", retTypes: []Type{"float64"}, template: true},
 		// TODO: cast
-		"int":              {expr: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true},
+		"int":              {expr: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true, template: true},
 		"byte":             {retTypes: []Type{"int"}},
 		"float32":          {retTypes: []Type{"float64"}},
 		"float64":          {retTypes: []Type{"float64"}},
