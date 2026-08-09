@@ -249,6 +249,22 @@ sliceなども含めて全ての値は値渡しです。
 
 レシーバのある関数(メソッド)も使えます。
 
+### 無名関数
+
+関数型の値はサポートしていますが、無名関数が無いので名前付きの関数を使ってください。
+
+```go
+func callback(msg string) {
+	fmt.Println("callback", msg)
+}
+
+func main() {
+	f0 := func(msg string) { fmt.Println(msg) } // NG
+	f1 := callback // NG
+}
+```
+
+
 ## goroutine
 
 サブプロセスとして実行されます。無名関数はまだサポートされていないので通常の名前付きの関数を呼び出してください。

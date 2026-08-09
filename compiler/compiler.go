@@ -223,6 +223,30 @@ func (s *state) parseImport() {
 	}
 }
 
+func (s *state) readFuncArgs(args []string, types []Type) ([]string, []Type) {
+	for tok := s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
+		if tok == '(' || tok == ',' {
+			tok = s.Scan()
+			if tok == ')' {
+				break
+			}
+			types = append(types, s.readType(true))
+		} else {
+			t := s.readType(true)
+			tt := types[len(args):]
+			types = types[:len(args)]
+			for _, n := range tt {
+				args = append(args, string(n))
+				types = append(types, t)
+			}
+		}
+	}
+	for len(args) < len(types) {
+		args = append(args, "_")
+	}
+	return args, types
+}
+
 func (s *state) readType(scaned bool) Type {
 	if !scaned {
 		s.Scan()
@@ -237,6 +261,13 @@ func (s *state) readType(scaned bool) Type {
 			s.Scan() // ]
 			t += string(s.readType(false))
 			t += s.TokenText()
+		} else if t == "func" {
+			t += "("
+			_, types := s.readFuncArgs(nil, nil)
+			for _, tt := range types {
+				t += string(tt) + ", "
+			}
+			t = strings.TrimSuffix(t, ", ") + ")"
 		} else if t == "struct" {
 			tok := s.Scan() // {
 			n := 0
@@ -268,6 +299,10 @@ func (s *state) readType(scaned bool) Type {
 		s.readExpression("int", "]", false) // ignore array size
 		t += s.TokenText()
 		t += string(s.readType(false))
+	} else if s.lastToken == '.' {
+		s.Scan() // ...
+		s.Scan()
+		t = "..." + string(s.readType(false))
 	}
 	return Type(strings.TrimPrefix(t, "shell."))
 }
@@ -302,9 +337,11 @@ func (s *state) resolveType(t Type) Type {
 	return t
 }
 
-func (s *state) readFuncCall(name string, variable bool) *shExpression {
+func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 	var args []*shExpression
-	if p := strings.LastIndex(name, "."); p >= 0 {
+	if v, ok := s.vars[name]; ok && invoke && strings.HasPrefix(string(v.Type), "func(") {
+		name = "$" + name
+	} else if p := strings.LastIndex(name, "."); p >= 0 {
 		ns := name[:p]
 		if v, ok := s.vars[ns]; ok {
 			name = strings.TrimPrefix(string(v.Type), "*") + "." + name[p+1:]
@@ -317,7 +354,7 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 			name = path.Base(pkg) + "." + name[p+1:]
 		}
 	}
-	if !variable {
+	if invoke {
 		s.Scan()
 		for s.lastToken != scanner.EOF && s.lastToken != ')' {
 			args = append(args, s.readExpression("", ",)", false))
@@ -327,6 +364,9 @@ func (s *state) readFuncCall(name string, variable bool) *shExpression {
 	expr := strings.ReplaceAll(name, ".", "__")
 	f, ok := s.funcs[name]
 	if ok {
+		if f.typ != "VALUE" && !invoke {
+			return &shExpression{expr: expr, retTypes: []Type{"func()"}}
+		}
 		expr = f.expr
 	}
 	e := &shExpression{expr: expr, typ: f.typ, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
@@ -467,8 +507,8 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				values = s.readValues()
 				typeHint = Type(ot)
 				t = ""
-			} else if _, ok := s.vars[ot]; !ok {
-				lastExpr = s.readFuncCall(ot, s.lastToken != '(')
+			} else if _, ok := s.vars[ot]; !ok || s.lastToken == '(' {
+				lastExpr = s.readFuncCall(ot, s.lastToken == '(')
 				t = lastExpr.AsValue()
 				if len(lastExpr.retTypes) > 0 && lastExpr.retTypes[0] != "" {
 					expressionType = lastExpr.retTypes[0]
@@ -654,37 +694,20 @@ func (s *state) procFunc() {
 	tok := s.Scan()
 	name := s.TokenText()
 	if tok == '(' {
-		s.Scan()
-		args = append(args, s.TokenText())
-		t := s.readType(false)
-		s.setType(args[len(argTypes)], t)
-		argTypes = append(argTypes, t)
-		s.Scan() // .
+		s.skipNextScan = true
+		args, argTypes = s.readFuncArgs(nil, nil)
 		s.Scan() // name
-		name = strings.TrimPrefix(string(t), "*") + "." + s.TokenText()
-	}
-	s.funcName = name
-	for tok = s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
-		if tok == '(' || tok == ',' {
-			tok = s.Scan()
-			if tok == ')' {
-				break
-			}
-			args = append(args, s.TokenText())
-		} else {
-			var t Type
-			if tok == '.' { // ...
-				s.Scan()
-				s.Scan()
-				t = Type("[]" + string(s.readType(false)))
-			} else {
-				t = s.readType(true)
-			}
-			for ; len(args) > len(argTypes); argTypes = append(argTypes, t) {
-				s.setType(args[len(argTypes)], t)
-			}
+		if len(args) > 0 {
+			name = strings.TrimPrefix(string(argTypes[0]), "*") + "." + s.TokenText()
 		}
 	}
+	s.funcName = name
+	args, argTypes = s.readFuncArgs(args, argTypes)
+	for i, n := range args {
+		argTypes[i] = Type(strings.Replace(string(argTypes[i]), "...", "[]", 1))
+		s.setType(n, argTypes[i])
+	}
+
 	s.Scan() // '(' or '{' or Ident
 	f := shExpression{expr: strings.ReplaceAll(name, ".", "__"), primaryIdx: -1, argTypes: argTypes}
 	if s.packageName != "main" {

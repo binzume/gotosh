@@ -8,9 +8,9 @@ import (
 // TODO: export types to modify from outside
 var InitBuiltInFuncs = func(s *state) {
 	s.funcs = map[string]shExpression{
-		"nil":                 {expr: "0", retTypes: []Type{""}},
-		"true":                {expr: "1", retTypes: []Type{"bool"}},
-		"false":               {expr: "0", retTypes: []Type{"bool"}},
+		"nil":                 {expr: "0", typ: "VALUE", retTypes: []Type{""}},
+		"true":                {expr: "1", typ: "VALUE", retTypes: []Type{"bool"}},
+		"false":               {expr: "0", typ: "VALUE", retTypes: []Type{"bool"}},
 		"shell.Sleep":         {expr: "sleep"},
 		"shell.Exit":          {expr: "exit"},
 		"shell.Export":        {expr: "export"},
@@ -62,10 +62,10 @@ var InitBuiltInFuncs = func(s *state) {
 		"strings.Contains": {expr: "case {0} in (*{1}*) echo 1;; (*) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true, template: true},
 		"strings.IndexAny": {expr: "expr '(' index {0} {1} ')' - 1", retTypes: []Type{"int"}, stdout: true, template: true},
 		// os
-		"os.Stdin":    {expr: "0", retTypes: []Type{"*os.File"}},         // variable
-		"os.Stdout":   {expr: "1", retTypes: []Type{"*os.File"}},         // variable
-		"os.Stderr":   {expr: "1", retTypes: []Type{"*os.File"}},         // variable
-		"os.Args":     {expr: `"$0" "$@"`, retTypes: []Type{"[]string"}}, // variable
+		"os.Stdin":    {expr: "0", typ: "VALUE", retTypes: []Type{"*os.File"}},
+		"os.Stdout":   {expr: "1", typ: "VALUE", retTypes: []Type{"*os.File"}},
+		"os.Stderr":   {expr: "1", typ: "VALUE", retTypes: []Type{"*os.File"}},
+		"os.Args":     {expr: `"$0" "$@"`, typ: "VALUE", retTypes: []Type{"[]string"}},
 		"os.Exit":     {expr: "exit"},
 		"os.Getwd":    {expr: "pwd", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"os.Chdir":    {expr: "cd", retTypes: []Type{"StatusCode"}, stdout: true},

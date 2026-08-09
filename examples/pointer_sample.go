@@ -5,11 +5,13 @@ import "fmt"
 type PointerTest struct {
 	Name  string `tag:"name field"`
 	Value int    `tag:"name value"`
+	Func  func(string)
 }
 
 func (p *PointerTest) PtrTest() {
 	p.Value += 10
 	p.Name += ", world"
+	p.Func("HELLO!")
 }
 
 func (p PointerTest) ValueTest() {
@@ -22,6 +24,14 @@ func Add(p *int, n int, s *string) (*int, *string) {
 	*p += n
 	*s += "a"
 	return p, s
+}
+
+func invoke(f func(string), msg string) {
+	f(msg)
+}
+
+func callback(msg string) {
+	fmt.Println("callback", msg)
 }
 
 func main() {
@@ -43,7 +53,9 @@ func main() {
 	fmt.Println(*p1, *p2, p3, msg, *z)
 	fmt.Println(*p1, 2**p1, *p1*3)
 
-	p := &PointerTest{"Hello", 1}
+	invoke(callback, "hello")
+
+	p := &PointerTest{"Hello", 1, callback}
 	p.ValueTest()
 	fmt.Println(p.Name, p.Value)
 	p.PtrTest()
