@@ -425,7 +425,11 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			}
 			t = s.TokenText()
 			for tok := s.Scan(); tok == '.'; tok = s.Scan() {
-				s.Scan()
+				if s.Scan() == '.' {
+					s.Scan() // ...
+					s.Scan()
+					break
+				}
 				t += "." + s.TokenText()
 			}
 			s.skipNextScan = true
@@ -668,14 +672,13 @@ func (s *state) procFunc() {
 			}
 			args = append(args, s.TokenText())
 		} else {
+			var t Type
 			if tok == '.' { // ...
 				s.Scan()
 				s.Scan()
-				s.Scan()
-			}
-			t := s.readType(true)
-			if tok == '.' {
-				t = Type("[]" + string(t))
+				t = Type("[]" + string(s.readType(false)))
+			} else {
+				t = s.readType(true)
 			}
 			for ; len(args) > len(argTypes); argTypes = append(argTypes, t) {
 				s.setType(args[len(argTypes)], t)
