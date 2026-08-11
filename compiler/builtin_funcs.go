@@ -23,8 +23,8 @@ var InitBuiltInFuncs = func(s *state) {
 		"shell.SetArgs":       {expr: `set -- `},
 		"shell.NArgs":         {expr: `$(( $# + 1 ))`, retTypes: []Type{"int"}},
 		"shell.UnixTimeMs":    {expr: `printf '%.0f' $( echo "${EPOCHREALTIME:-$(date +%s)} * 1000" | bc )`, retTypes: []Type{"int"}, stdout: true},
-		"shell.Do":            {retTypes: []Type{"StatusCode"}, applyFunc: func(e *shExpression, arg []string) { e.expr = trimQuote(arg[0]) }, primaryIdx: -1},
-		"shell.IsShellScript": {expr: "1", retTypes: []Type{"bool"}},
+		"shell.Do":            {retTypes: []Type{"StatusCode"}, applyFunc: func(e *shExpression, arg []string) { e.expr = strings.TrimSpace(trimQuote(arg[0])) }, primaryIdx: -1},
+		"shell.IsShellScript": {expr: "1", typ: "VALUE", retTypes: []Type{"bool"}},
 
 		"shell.SetFloatPrecision": {applyFunc: func(e *shExpression, arg []string) {
 			if p, err := strconv.Atoi(arg[0]); err == nil && p >= 0 {
@@ -103,12 +103,12 @@ var InitBuiltInFuncs = func(s *state) {
 		"exec.Command":        {expr: "echo -n ", retTypes: []Type{"*exec.Cmd"}, stdout: true}, // TODO escape command string...
 		"exec.Cmd.Output":     {expr: "bash -c", retTypes: []Type{"string", "StatusCode"}, stdout: true},
 		"reflect.TypeOf":      {retTypes: []Type{"string"}, applyFunc: func(e *shExpression, arg []string) { e.expr = `"` + string(s.vars[varName(arg[0])].Type) + `"` }},
-		"runtime.Compiler":    {expr: "'gotosh'", retTypes: []Type{"string"}},               // constant
-		"runtime.GOARCH":      {expr: "uname -m", retTypes: []Type{"string"}, stdout: true}, // constant
-		"runtime.GOOS":        {expr: "uname -o", retTypes: []Type{"string"}, stdout: true}, // constant
+		"runtime.Compiler":    {expr: "'gotosh'", typ: "VALUE", retTypes: []Type{"string"}},               // constant
+		"runtime.GOARCH":      {expr: "uname -m", typ: "VALUE", retTypes: []Type{"string"}, stdout: true}, // constant
+		"runtime.GOOS":        {expr: "uname -o", typ: "VALUE", retTypes: []Type{"string"}, stdout: true}, // constant
 		// math (using bc)
-		"math.Pi":   {expr: "3.141592653589793", retTypes: []Type{"float64"}}, // constant
-		"math.E":    {expr: "2.718281828459045", retTypes: []Type{"float64"}}, // constant
+		"math.Pi":   {expr: "3.141592653589793", typ: "VALUE", retTypes: []Type{"float64"}}, // constant
+		"math.E":    {expr: "2.718281828459045", typ: "VALUE", retTypes: []Type{"float64"}}, // constant
 		"math.Sqrt": {typ: "FLOAT_EXPR", expr: "sqrt({0F})", retTypes: []Type{"float64"}, template: true},
 		"math.Pow":  {typ: "FLOAT_EXPR", expr: "e(l({0F})*{1F})", retTypes: []Type{"float64"}, template: true},
 		"math.Exp":  {typ: "FLOAT_EXPR", expr: "e({0F})", retTypes: []Type{"float64"}, template: true},

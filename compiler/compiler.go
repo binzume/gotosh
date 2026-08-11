@@ -38,10 +38,6 @@ func escapeShellString(s string) string {
 
 type Type string
 
-func (t Type) IsArray() bool {
-	return strings.HasPrefix(string(t), "[]")
-}
-
 type TypedName struct {
 	Name string
 	Type Type
@@ -75,7 +71,7 @@ func (f *shExpression) AsValue() string {
 		expr = fn(f)
 	} else if len(f.retTypes) > 0 && f.primaryIdx < 0 {
 		expr = "$(" + expr + " >&2; echo \"$" + f.RetVarName(0) + "\")"
-	} else if f.stdout && len(f.retTypes) > 0 && (f.retTypes[0] == "int" || f.retTypes[0].IsArray()) {
+	} else if f.stdout && len(f.retTypes) > 0 && (f.retTypes[0] == "int" || strings.HasPrefix(string(f.retTypes[0]), "[]")) {
 		expr = "$(" + expr + ")"
 	} else if f.stdout {
 		expr = "\"$(" + expr + ")\""
@@ -132,13 +128,17 @@ func newState() *state {
 	var s state
 	s.w = os.Stdout
 	s.vars = map[string]TypedName{}
-	s.types = map[Type]Type{"*os.File": "int"} // Use fd as *os.File
+	s.types = map[Type]Type{"*os.File": "int", "*exec.Cmd": "string"} // Use fd as *os.File
 	InitBuiltInFuncs(&s)
 	return &s
 }
 
-func (s *state) IsPtr(t Type) bool {
-	return strings.HasPrefix(string(s.resolveType(t)), "*")
+const TYPE_PTR string = "*"
+const TYPE_ARRAY string = "[]"
+const TYPE_MAP string = "map["
+
+func (s *state) IsType(t Type, prefix string) bool {
+	return strings.HasPrefix(string(s.resolveType(t)), prefix)
 }
 
 func (s *state) Scan() rune {
@@ -259,8 +259,8 @@ func (s *state) readType(scaned bool) Type {
 			t += s.TokenText()
 			t += string(s.readType(false))
 			s.Scan() // ]
-			t += string(s.readType(false))
 			t += s.TokenText()
+			t += string(s.readType(false))
 		} else if t == "func" {
 			t += "("
 			_, types := s.readFuncArgs(nil, nil)
@@ -339,7 +339,7 @@ func (s *state) resolveType(t Type) Type {
 
 func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 	var args []*shExpression
-	if v, ok := s.vars[name]; ok && invoke && strings.HasPrefix(string(v.Type), "func(") {
+	if v, ok := s.vars[name]; ok && s.IsType(v.Type, "func(") {
 		name = "$" + name
 	} else if p := strings.LastIndex(name, "."); p >= 0 {
 		ns := name[:p]
@@ -371,10 +371,20 @@ func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 	}
 	e := &shExpression{expr: expr, typ: f.typ, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
 
+	if name == "len" && f.expr == "" && len(args) == 1 && s.IsType(args[0].retTypes[0], TYPE_MAP) {
+		if args[0].expr != "" {
+			e.expr = "${#" + args[0].expr + "[@]}"
+		} else {
+			e.expr = fmt.Sprint(len(args[0].values) / 2)
+		}
+		f = shExpression{}
+		args = nil
+	}
+
 	var values []string
 	for _, e := range args {
 		for i, t := range e.retTypes {
-			if len(f.argTypes) > len(values) && s.IsPtr(f.argTypes[len(values)]) && !s.IsPtr(t) && len(e.Values()) > 0 {
+			if len(f.argTypes) > len(values) && s.IsType(f.argTypes[len(values)], TYPE_PTR) && !s.IsType(t, TYPE_PTR) && len(e.Values()) > 0 {
 				values = append(values, "\""+varName(e.expr)+"\"")
 				continue
 			}
@@ -401,8 +411,8 @@ func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 			}
 			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{%dF}", i), value)
 		}
-	} else {
-		e.expr = strings.TrimSpace(e.expr + " " + strings.Join(values, " "))
+	} else if len(values) > 0 {
+		e.expr = e.expr + " " + strings.Join(values, " ")
 	}
 	return e
 }
@@ -413,7 +423,7 @@ func (s *state) readValues() (values []string) {
 		end = '}'
 	}
 	for s.lastToken != scanner.EOF && s.lastToken != end {
-		values = append(values, s.readExpression("", string(end), false).Values()...)
+		values = append(values, s.readExpression("", string(end)+":", false).Values()...)
 	}
 	return
 }
@@ -482,7 +492,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			ot := t
 			lt := t
 			t = varName(t)
-			if s.vars[ot].Type.IsArray() {
+			if s.IsType(s.vars[ot].Type, TYPE_ARRAY) {
 				t += "[@]"
 			}
 			lastVar = t
@@ -493,14 +503,15 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 					idx = append(idx, s.readExpression("int", ":]", false))
 				}
 				if len(idx) == 1 && expressionType != "string" {
-					t = ot + "[" + idx[0].AsValue() + "]"
+					t = ot + "[" + idx[0].AsValue() + "]:-"
 					expressionType = Type(strings.TrimPrefix(string(expressionType), "[]"))
+					expressionType = Type(strings.TrimPrefix(string(expressionType), "map[string]"))
 				} else if len(idx) == 1 {
 					t += ":" + idx[0].AsValue() + ":1"
 				} else if len(idx) >= 2 {
 					t += ":" + idx[0].AsValue() + ":$(( " + idx[1].AsValue() + " - " + idx[0].AsValue() + " ))"
 				}
-				lt = t
+				lt = strings.TrimSuffix(t, ":-")
 			}
 
 			if _, ok := s.types[Type(ot)]; ok {
@@ -515,7 +526,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				}
 			} else if expressionType == "float32" || expressionType == "float64" {
 				t = " " + varValue(t) + " "
-			} else if expressionType == "string" || expressionType.IsArray() {
+			} else if expressionType == "string" || s.IsType(expressionType, TYPE_ARRAY) {
 				t = "\"" + varValue(t) + "\""
 			}
 			if derefPtr {
@@ -568,8 +579,8 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 		lastExpr.lhs = e.lhs
 		lastExpr.declare = e.declare
 		return lastExpr
-	} else if lastVar != "" && expr == lastVar {
-		if s.IsPtr(typeHint) {
+	} else if lastVar != "" && expr == lastVar && !s.IsType(typeHint, TYPE_MAP) {
+		if s.IsType(typeHint, TYPE_PTR) {
 			expr = "!" + expr // bash: !, zsh: (!)
 		}
 		e.expr = varValue(expr)
@@ -583,7 +594,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 		e.typ = "STR_CMP"
 	} else if tokens > 1 && (expressionType == "float32" || expressionType == "float64") {
 		e.typ = "FLOAT_EXPR"
-	} else if tokens > 1 && expressionType != "string" && !expressionType.IsArray() {
+	} else if tokens > 1 && expressionType != "string" && !s.IsType(expressionType, TYPE_ARRAY) {
 		e.typ = "INT_EXPR"
 	}
 	return e
@@ -605,24 +616,26 @@ func (s *state) writeExpr(e *shExpression, typ Type) {
 		local := e.declare && s.funcName != ""
 		for vi, field := range s.fields(s.vars[e.lhs[i]].Type, "") {
 			name := varName(e.lhs[i] + field.Name)
-			if s.IsPtr(s.vars[e.lhs[i]].Type) {
-				s.WriteString("declare -n ") // Need to re-declare for updating pointer as well.
+			if s.IsType(s.vars[e.lhs[i]].Type, TYPE_MAP) && v == "" {
+				s.WriteString("typeset -A ")
+			} else if s.IsType(s.vars[e.lhs[i]].Type, TYPE_PTR) || s.IsType(s.vars[e.lhs[i]].Type, TYPE_MAP) {
+				s.WriteString("typeset -n ") // Need to re-declare for updating pointer as well.
 			} else if local {
 				s.WriteString("local ")
 			}
 			if vn != "" && len(e.retTypes) > i {
 				s.Writeln(name + "=\"$" + varName(vn+field.Name) + "\"")
 			} else if local || v != "" || len(e.values) > vi {
-				if local && statusIndex >= 0 {
-					s.Writeln(name) // to avoid 'local' modify status code
-				}
 				tv := v
-				if field.Type.IsArray() {
+				if s.IsType(field.Type, TYPE_ARRAY) || (s.IsType(field.Type, TYPE_MAP) && e.values != nil) {
 					tv = "(" + strings.Join(e.Values(), " ") + ")"
 				} else if len(e.values) > vi {
 					tv = e.values[vi]
 				} else if tv == "" && field.Type == "int" {
 					tv = "0"
+				}
+				if local && statusIndex >= 0 {
+					s.Writeln(name) // to avoid 'local' modify status code
 				}
 				s.Writeln(name + "=" + tv)
 			}
@@ -716,7 +729,7 @@ func (s *state) procFunc() {
 	stdoutIndex := -1
 	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
 		t := s.readType(s.lastToken != '(' && s.lastToken != ',')
-		if _, ok := specialReturnTypes[t]; !ok && len(s.fields(t, "")) == 1 && !s.IsPtr(t) {
+		if _, ok := specialReturnTypes[t]; !ok && len(s.fields(t, "")) == 1 && !s.IsType(t, TYPE_PTR) {
 			stdoutIndex = len(f.retTypes)
 		}
 		f.retTypes = append(f.retTypes, t)
@@ -733,16 +746,16 @@ func (s *state) procFunc() {
 	s.Writeln(f.expr + "() {")
 	s.cl = append(s.cl, "}")
 	for i, arg := range args {
-		if s.IsPtr(s.vars[arg].Type) {
+		if s.IsType(argTypes[i], TYPE_PTR) || s.IsType(argTypes[i], TYPE_MAP) {
 			for _, field := range s.fields(Type(strings.TrimPrefix(string(argTypes[i]), "*")), "") {
-				s.Writeln("[ \"$1\" != '" + arg + "' ] && declare -n " + arg + varName(field.Name) + "=\"$1\"" + varName(field.Name)) // for bash
+				s.Writeln("[ \"$1\" != '" + arg + "' ] && typeset -n " + arg + varName(field.Name) + "=\"$1\"" + varName(field.Name)) // for bash
 			}
 			s.Writeln("shift")
 			continue
 		}
 
 		for _, field := range s.fields(argTypes[i], arg) {
-			if !field.Type.IsArray() {
+			if !s.IsType(field.Type, TYPE_ARRAY) {
 				s.Writeln("local " + varName(field.Name) + `="$1"; shift`)
 			} else if field.Name != "_" {
 				s.Writeln("local " + varName(field.Name) + `=("$@")`)
