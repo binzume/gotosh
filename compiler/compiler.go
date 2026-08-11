@@ -412,7 +412,7 @@ func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 			e.expr = strings.ReplaceAll(e.expr, fmt.Sprintf("{%dF}", i), value)
 		}
 	} else if len(values) > 0 {
-		e.expr = e.expr + " " + strings.Join(values, " ")
+		e.expr = strings.TrimSpace(e.expr + " " + strings.Join(values, " "))
 	}
 	return e
 }
