@@ -38,6 +38,16 @@ func escapeShellString(s string) string {
 
 type Type string
 
+func (t Type) ElementType() Type {
+	if strings.HasPrefix(string(t), TYPE_ARRAY) || strings.HasPrefix(string(t), TYPE_MAP) {
+		p := strings.IndexRune(string(t), ']')
+		if p > 0 {
+			t = Type(string(t)[p+1:])
+		}
+	}
+	return t
+}
+
 type TypedName struct {
 	Name string
 	Type Type
@@ -45,7 +55,7 @@ type TypedName struct {
 
 var specialReturnTypes = map[Type]Type{"StatusCode": "int", "TempVarString": "string", "TempVarInt": "int"}
 
-var asValueFunc = map[string]func(e *shExpression) string{
+var asValueFunc = map[string]func(*shExpression) string{
 	"FLOAT_EXPR": func(e *shExpression) string { return `$(echo "` + e.expr + `" | bc -l)` },
 	"INT_EXPR":   func(e *shExpression) string { return "$(( " + e.expr + " ))" },
 	"STR_CMP":    func(e *shExpression) string { return "$([[ " + e.expr + " ]] && echo 1 || echo 0)" },
@@ -226,15 +236,14 @@ func (s *state) parseImport() {
 func (s *state) readFuncArgs(args []string, types []Type) ([]string, []Type) {
 	for tok := s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
 		if tok == '(' || tok == ',' {
-			tok = s.Scan()
-			if tok == ')' {
+			if s.Scan() == ')' {
 				break
 			}
 			types = append(types, s.readType(true))
 		} else {
-			t := s.readType(true)
 			tt := types[len(args):]
 			types = types[:len(args)]
+			t := s.readType(true)
 			for _, n := range tt {
 				args = append(args, string(n))
 				types = append(types, t)
@@ -245,6 +254,14 @@ func (s *state) readFuncArgs(args []string, types []Type) ([]string, []Type) {
 		args = append(args, "_")
 	}
 	return args, types
+}
+
+func joinTypes(types []Type) string {
+	t := ""
+	for _, tt := range types {
+		t += string(tt) + ", "
+	}
+	return strings.TrimSuffix(t, ", ")
 }
 
 func (s *state) readType(scaned bool) Type {
@@ -262,12 +279,16 @@ func (s *state) readType(scaned bool) Type {
 			t += s.TokenText()
 			t += string(s.readType(false))
 		} else if t == "func" {
-			t += "("
 			_, types := s.readFuncArgs(nil, nil)
-			for _, tt := range types {
-				t += string(tt) + ", "
+			t += "(" + joinTypes(types) + ")"
+			tok := s.Scan()
+			s.skipNextScan = true
+			if tok == '(' {
+				_, types := s.readFuncArgs(nil, nil)
+				t += "(" + joinTypes(types) + ")"
+			} else if typ := s.readType(false); typ != "" {
+				t += joinTypes([]Type{typ})
 			}
-			t = strings.TrimSuffix(t, ", ") + ")"
 		} else if t == "struct" {
 			tok := s.Scan() // {
 			n := 0
@@ -303,6 +324,8 @@ func (s *state) readType(scaned bool) Type {
 		s.Scan() // ...
 		s.Scan()
 		t = "..." + string(s.readType(false))
+	} else {
+		s.skipNextScan = true
 	}
 	return Type(strings.TrimPrefix(t, "shell."))
 }
@@ -365,13 +388,15 @@ func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 	f, ok := s.funcs[name]
 	if ok {
 		if f.typ != "VALUE" && !invoke {
-			return &shExpression{expr: expr, retTypes: []Type{"func()"}}
+			return &shExpression{expr: expr, retTypes: []Type{Type("func(" + joinTypes(f.argTypes) + ")")}}
 		}
 		expr = f.expr
+	} else {
+		f.retTypes = []Type{""}
 	}
 	e := &shExpression{expr: expr, typ: f.typ, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
 
-	if name == "len" && f.expr == "" && len(args) == 1 && s.IsType(args[0].retTypes[0], TYPE_MAP) {
+	if name == "len" && f.expr == "" && len(args) == 1 && len(args[0].retTypes) == 1 && s.IsType(args[0].retTypes[0], TYPE_MAP) {
 		if args[0].expr != "" {
 			e.expr = "${#" + args[0].expr + "[@]}"
 		} else {
@@ -504,8 +529,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 				}
 				if len(idx) == 1 && expressionType != "string" {
 					t = ot + "[" + idx[0].AsValue() + "]:-"
-					expressionType = Type(strings.TrimPrefix(string(expressionType), "[]"))
-					expressionType = Type(strings.TrimPrefix(string(expressionType), "map[string]"))
+					expressionType = expressionType.ElementType()
 				} else if len(idx) == 1 {
 					t += ":" + idx[0].AsValue() + ":1"
 				} else if len(idx) >= 2 {
@@ -721,28 +745,28 @@ func (s *state) procFunc() {
 		s.setType(n, argTypes[i])
 	}
 
-	s.Scan() // '(' or '{' or Ident
 	f := shExpression{expr: strings.ReplaceAll(name, ".", "__"), primaryIdx: -1, argTypes: argTypes}
 	if s.packageName != "main" {
 		f.expr = s.packageName + "__" + f.expr
 	}
-	stdoutIndex := -1
-	for s.lastToken != scanner.EOF && s.lastToken != ')' && s.lastToken != '{' {
-		t := s.readType(s.lastToken != '(' && s.lastToken != ',')
-		if _, ok := specialReturnTypes[t]; !ok && len(s.fields(t, "")) == 1 && !s.IsType(t, TYPE_PTR) {
-			stdoutIndex = len(f.retTypes)
+
+	tok = s.Scan()
+	s.skipNextScan = true
+	if tok == '(' {
+		_, f.retTypes = s.readFuncArgs(nil, nil)
+	} else if typ := s.readType(false); typ != "" {
+		f.retTypes = []Type{typ}
+	}
+	if len(f.retTypes) == 1 || len(f.retTypes) == 2 && (f.retTypes[0] == "StatusCode" || f.retTypes[1] == "StatusCode") {
+		for i, t := range f.retTypes {
+			if _, ok := specialReturnTypes[t]; !ok && len(s.fields(t, "")) == 1 && !s.IsType(t, TYPE_PTR) {
+				f.primaryIdx = i
+				f.stdout = true
+			}
 		}
-		f.retTypes = append(f.retTypes, t)
-		s.Scan() // , or ')' or '{'
-	}
-	for ; s.lastToken != '{' && s.lastToken != scanner.EOF; s.Scan() {
-	}
-	if stdoutIndex >= 0 && (len(f.retTypes) == 1 ||
-		len(f.retTypes) == 2 && (f.retTypes[0] == "StatusCode" || f.retTypes[1] == "StatusCode")) {
-		f.primaryIdx = stdoutIndex
-		f.stdout = true
 	}
 
+	s.Scan() // {
 	s.Writeln(f.expr + "() {")
 	s.cl = append(s.cl, "}")
 	for i, arg := range args {
@@ -785,7 +809,7 @@ func (s *state) procFor() {
 		}
 		if len(e.lhs) > 1 && e.lhs[1] != "_" {
 			v = e.lhs[1]
-			s.setType(v, Type(strings.TrimPrefix(string(e.retTypes[0]), "[]")))
+			s.setType(v, e.retTypes[0].ElementType())
 		}
 		s.Writeln("for " + v + ` in ` + strings.TrimPrefix(e.expr, "#RANGE#") + strings.Join(e.values, " ") + "; do :")
 	} else {
