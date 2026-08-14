@@ -139,7 +139,7 @@ func newState() *state {
 	var s state
 	s.w = os.Stdout
 	s.vars = map[string]TypedName{}
-	s.types = map[Type]Type{"*os.File": "int", "*exec.Cmd": "string"} // Use fd as *os.File
+	s.types = map[Type]Type{"*os.File": "int", "*exec.Cmd": "string", "bool": "int"} // Use fd as *os.File
 	InitBuiltInFuncs(&s)
 	return &s
 }
@@ -645,7 +645,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 		e.typ = "STR_CMP"
 	} else if tokens > 1 && (expressionType == "float32" || expressionType == "float64") {
 		e.typ = "FLOAT_EXPR"
-	} else if tokens > 1 && expressionType == "int" && !s.IsType(expressionType, TYPE_ARRAY) {
+	} else if tokens > 1 && s.resolveType(expressionType) == "int" && !s.IsType(expressionType, TYPE_ARRAY) {
 		e.typ = "INT_EXPR"
 	}
 	return e
