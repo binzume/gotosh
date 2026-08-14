@@ -84,7 +84,7 @@ var InitBuiltInFuncs = func(s *state) {
 		}},
 		"os.Pipe": {expr: `_tmp=$(mktemp -d) && mkfifo $_tmp/f && {0R}=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )) && {1R}=$(( ++GOTOSH_fd ))` +
 			` && eval "exec ${1R}<>\"$_tmp/f\" ${0R}<\"$_tmp/f\"" && rm -rf $_tmp`,
-			retTypes: []Type{"*os.File", "*os.File", "StatusCode"}, primaryIdx: -1},
+			retTypes: []Type{"*os.File", "*os.File", "StatusCode"}, primaryIdx: -1, template: true},
 		"os.Open":             {expr: `{0R}=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec ${0R}<'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1, template: true},
 		"os.Create":           {expr: `{0R}=$(( GOTOSH_fd=${GOTOSH_fd:-2}+1 )); eval "exec ${0R}>'{0}'"`, retTypes: []Type{"*os.File", "StatusCode"}, primaryIdx: -1, template: true},
 		"os.Stat":             {expr: `[ -e {0} ] && echo {0}`, retTypes: []Type{"fs.FileInfo", "StatusCode"}, stdout: true, template: true},

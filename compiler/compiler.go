@@ -508,7 +508,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			t = "'" + strings.ReplaceAll(strings.Trim(t, "`"), "'", "\\'") + "'"
 		} else if tok == scanner.Ident && t == "func" {
 			lastExpr = s.procAnonFunc()
-			t = lastExpr.AsValue()
+			t = lastExpr.AsValue() + " "
 			expressionType = lastExpr.retTypes[0]
 		} else if tok == scanner.Ident && t == "range" {
 			t = "#RANGE#"
@@ -645,7 +645,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 		e.typ = "STR_CMP"
 	} else if tokens > 1 && (expressionType == "float32" || expressionType == "float64") {
 		e.typ = "FLOAT_EXPR"
-	} else if tokens > 1 && expressionType != "string" && !s.IsType(expressionType, TYPE_ARRAY) {
+	} else if tokens > 1 && expressionType == "int" && !s.IsType(expressionType, TYPE_ARRAY) {
 		e.typ = "INT_EXPR"
 	}
 	return e
