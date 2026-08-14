@@ -3,6 +3,7 @@ package compiler
 import (
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path"
 	"strings"
@@ -213,9 +214,6 @@ func (s *state) EndBlock() {
 	t := s.cl[len(s.cl)-1]
 	s.cl = s.cl[:len(s.cl)-1]
 	s.bufLine = t + "\n" // for "else"
-	if len(s.cl) == 0 {
-		s.funcName = ""
-	}
 }
 
 func (s *state) parseImportPkg() {
@@ -243,10 +241,9 @@ func (s *state) parseImport() {
 func (s *state) readFuncArgs(args []string, types []Type) ([]string, []Type) {
 	for tok := s.Scan(); tok != scanner.EOF && tok != ')'; tok = s.Scan() {
 		if tok == '(' || tok == ',' {
-			if s.Scan() == ')' {
-				break
+			if s.PeekToken() != ')' {
+				types = append(types, s.readType(false)) // type or variable
 			}
-			types = append(types, s.readType(true))
 		} else {
 			tt := types[len(args):]
 			types = types[:len(args)]
@@ -406,7 +403,7 @@ func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 	f, ok := s.funcs[name]
 	if ok {
 		if f.typ != "VALUE" && !invoke {
-			return &shExpression{expr: expr, retTypes: []Type{Type("func(" + joinTypes(f.argTypes) + ")")}}
+			return &shExpression{expr: expr, retTypes: []Type{funcType(f.argTypes, f.retTypes)}}
 		}
 		expr = f.expr
 	} else {
@@ -755,13 +752,17 @@ func (s *state) procReturn() {
 	}
 }
 
-func (s *state) startFunc(name, expr string, args []string, argTypes []Type) shExpression {
+func (s *state) compileFunc(name, shname string, args []string, argTypes []Type) shExpression {
+	previousFuncName := s.funcName
+	previousVars := map[string]TypedName{}
+	maps.Copy(previousVars, s.vars)
+	s.funcName = name
 	for i, n := range args {
 		argTypes[i] = Type(strings.Replace(string(argTypes[i]), "...", "[]", 1))
 		s.setType(n, argTypes[i])
 	}
 
-	f := shExpression{expr: expr, primaryIdx: -1, argTypes: argTypes}
+	f := shExpression{expr: shname, primaryIdx: -1, argTypes: argTypes}
 	if s.PeekToken() == '(' {
 		_, f.retTypes = s.readFuncArgs(nil, nil)
 	} else if typ := s.readType(false); typ != "" {
@@ -794,8 +795,10 @@ func (s *state) startFunc(name, expr string, args []string, argTypes []Type) shE
 			}
 		}
 	}
-	s.funcName = name
 	s.funcs[name] = f
+	s.compile(len(s.cl) - 1)
+	s.vars = previousVars
+	s.funcName = previousFuncName
 	return f
 }
 
@@ -812,12 +815,11 @@ func (s *state) procFunc() {
 		}
 	}
 	args, argTypes = s.readFuncArgs(args, argTypes)
-	expr := strings.ReplaceAll(name, ".", "__")
+	shname := name
 	if s.packageName != "main" {
-		expr = s.packageName + "__" + expr
+		shname = s.packageName + "." + shname
 	}
-	f := s.startFunc(name, expr, args, argTypes)
-	s.compile(len(s.cl) - 1)
+	f := s.compileFunc(name, strings.ReplaceAll(shname, ".", "__"), args, argTypes)
 	s.funcs[s.packageName+"."+name] = f
 	if n, found := strings.CutPrefix(name, "GOTOSH_FUNC_"); found {
 		s.funcs[strings.ReplaceAll(n, "_", ".")] = f
@@ -828,11 +830,7 @@ func (s *state) procAnonFunc() *shExpression {
 	name := fmt.Sprintf("GOTOSH_ANON_%d", s.anonFuncID)
 	s.anonFuncID++
 	args, argTypes := s.readFuncArgs(nil, nil)
-	previousFuncName := s.funcName
-	f := s.startFunc(name, name, args, argTypes)
-	s.compile(len(s.cl) - 1)
-	s.funcName = previousFuncName
-
+	f := s.compileFunc(name, name, args, argTypes)
 	return &shExpression{expr: f.expr, retTypes: []Type{funcType(f.argTypes, f.retTypes)}}
 }
 
@@ -844,17 +842,26 @@ func (s *state) procFor() {
 	}
 
 	continueExpr := &shExpression{}
-	if strings.HasPrefix(e.expr, "#RANGE#") {
-		v := "_"
+	if expr := strings.TrimPrefix(e.expr, "#RANGE#"); expr != e.expr {
+		var k, v = "_", "_"
 		if len(e.lhs) > 0 && e.lhs[0] != "_" {
-			s.writeExpr(&shExpression{lhs: []string{e.lhs[0]}, expr: "0", declare: e.declare}, "int")
-			continueExpr = &shExpression{typ: "INT_EXPR", expr: e.lhs[0] + "+=1"}
+			k = e.lhs[0]
+			s.writeExpr(&shExpression{lhs: []string{k}, expr: "0", declare: e.declare}, "int")
+			continueExpr = &shExpression{typ: "INT_EXPR", expr: k + "+=1"}
 		}
 		if len(e.lhs) > 1 && e.lhs[1] != "_" {
 			v = e.lhs[1]
-			s.setType(v, e.retTypes[0].ElementType())
+			s.writeExpr(&shExpression{lhs: []string{v}, expr: "", declare: e.declare}, e.retTypes[0].ElementType())
 		}
-		s.Writeln("for " + v + ` in ` + strings.TrimPrefix(e.expr, "#RANGE#") + strings.Join(e.values, " ") + "; do :")
+		if s.IsType(e.retTypes[0], TYPE_MAP) {
+			s.Writeln("for " + k + ` in ` + "${!" + expr + "[@]} ; do :")
+			if v != "_" {
+				s.Writeln(v + `=` + "${" + expr + "[${" + k + "}]}")
+			}
+			continueExpr = &shExpression{}
+		} else {
+			s.Writeln("for " + v + ` in ` + expr + strings.Join(e.values, " ") + "; do :")
+		}
 	} else {
 		cond := "true"
 		if e.AsValue() != "" {
@@ -903,8 +910,7 @@ func (s *state) compile(endDepth int) {
 				s.Writeln("# " + c)
 			}
 		} else if tok == scanner.Ident {
-			t := s.TokenText()
-			switch t {
+			switch t := s.TokenText(); t {
 			case "package":
 				s.Scan()
 				s.packageName = s.TokenText()

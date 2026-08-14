@@ -2,6 +2,7 @@ package compiler
 
 import (
 	"bytes"
+	"slices"
 	"strings"
 	"testing"
 	"text/scanner"
@@ -98,13 +99,19 @@ func Test_readExpression(t *testing.T) {
 	}{
 		{"1 + 1", shExpression{expr: "1+1", typ: "INT_EXPR", retTypes: []Type{"int"}}, scanner.EOF},
 		{"1 == 1", shExpression{expr: "1 == 1", typ: "INT_EXPR", retTypes: []Type{"bool"}}, scanner.EOF},
+		{"!true", shExpression{expr: "!1", typ: "INT_EXPR", retTypes: []Type{"bool"}}, scanner.EOF},
 		{"1.5 * 1.5", shExpression{expr: "1.5*1.5", typ: "FLOAT_EXPR", retTypes: []Type{"float32"}}, scanner.EOF},
 		{`"ABC" == "DEF"`, shExpression{expr: `"ABC" == "DEF"`, typ: "STR_CMP", retTypes: []Type{"bool"}}, scanner.EOF},
 		{`len(map[int][int]{1:2, 2:3})`, shExpression{expr: `2`, retTypes: []Type{"int"}}, scanner.EOF},
 		{`len(map[int][int]{})`, shExpression{expr: `0`, retTypes: []Type{"int"}}, scanner.EOF},
 		{`[]int{1,2,3}`, shExpression{expr: ``, retTypes: []Type{"[]int"}, values: []string{"1", "2", "3"}}, scanner.EOF},
+		{`map[int]int{1:2}`, shExpression{expr: ``, retTypes: []Type{"map[int]int"}, values: []string{"1", "2"}}, scanner.EOF},
 		{`f(1,"abc", x, s)`, shExpression{expr: `f 1 "abc" $x "$s"`, typ: "", retTypes: []Type{"int"}}, scanner.EOF},
-		{`f`, shExpression{expr: `f`, typ: "", retTypes: []Type{"func(int, string)"}}, scanner.EOF},
+		{`f`, shExpression{expr: `f`, typ: "", retTypes: []Type{"func(int, string)int"}}, scanner.EOF},
+		{`int(123.4)`, shExpression{expr: `printf '%.0f' 123.4`, typ: "", retTypes: []Type{"int"}}, scanner.EOF},
+		{`string('s')`, shExpression{expr: `'s'`, typ: "", retTypes: []Type{"string"}}, scanner.EOF},
+		{`float64(123.4)`, shExpression{expr: `123.4`, typ: "", retTypes: []Type{"float64"}}, scanner.EOF},
+		{`float32(123.4)`, shExpression{expr: `123.4`, typ: "", retTypes: []Type{"float32"}}, scanner.EOF},
 	}
 	for _, f := range fixture {
 		s := newState()
@@ -116,15 +123,12 @@ func Test_readExpression(t *testing.T) {
 		if e.expr != f.t.expr || e.typ != f.t.typ {
 			t.Errorf("readExpression: %v != %v", f.t, e)
 		}
-		if len(e.retTypes) != len(f.t.retTypes) {
-			t.Errorf("readExpression: %v != %v", f.t.retTypes, e.retTypes)
-		} else {
-			for i, tt := range e.retTypes {
-				if tt != f.t.retTypes[i] {
-					t.Errorf("readExpression: %v != %v", tt, f.t.retTypes[i])
-				}
-			}
 
+		if !slices.Equal(f.t.retTypes, e.retTypes) {
+			t.Errorf("readExpression.retTypes: %v != %v", f.t.retTypes, e.retTypes)
+		}
+		if !slices.Equal(f.t.values, e.values) {
+			t.Errorf("readExpression.values: %v != %v", f.t.values, e.values)
 		}
 		if tok := s.Scan(); tok != f.next {
 			t.Errorf("readExpression %v != %v", f.next, tok)

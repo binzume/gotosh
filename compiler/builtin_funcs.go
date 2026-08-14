@@ -123,7 +123,7 @@ var InitBuiltInFuncs = func(s *state) {
 		// TODO: cast
 		"int":              {expr: "printf '%.0f' {0}", retTypes: []Type{"int"}, stdout: true, template: true},
 		"byte":             {retTypes: []Type{"int"}},
-		"float32":          {retTypes: []Type{"float64"}},
+		"float32":          {retTypes: []Type{"float32"}},
 		"float64":          {retTypes: []Type{"float64"}},
 		"string":           {retTypes: []Type{"string"}},
 		"strconv.Atoi":     {retTypes: []Type{"int", "StatusCode"}},
