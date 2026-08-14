@@ -32,5 +32,9 @@ jobs:
       run: ./compare_output.sh file_io
     - name: Test math
       run: ./compare_output.sh math_sample
+    - name: Test map
+      run: ./compare_output.sh map_sample
+    - name: Test lambda
+      run: ./compare_output.sh lambda_sample
     - name: Test misc
       run: ./compare_output.sh misc
