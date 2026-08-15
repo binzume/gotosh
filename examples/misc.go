@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"reflect"
 	"strconv"
@@ -80,6 +81,17 @@ func main() {
 		}
 	}
 
+	shell.SetArgs("hello world", "aaa.txt", "bbb")
+	fmt.Println(len(shell.Args()))
+	for i, arg := range shell.Args() {
+		fmt.Println("shell.Args", i, arg)
+	}
+
+	shell.SetArgs(append(shell.Args(), "", "")...)
+	for i, arg := range shell.Args() {
+		fmt.Println("shell.Args", i, arg)
+	}
+
 	// func call
 	testFunc(1, 2, "test")
 	var n = int(111 + 222*3)
@@ -94,21 +106,53 @@ func main() {
 	status2, msg2 := returnStringAndStatus2()
 	fmt.Println(status2, msg2)
 
-	msg3, msg4, msg5 := returnStringMulti()
+	msg3, msg4,
+		msg5 := returnStringMulti()
 	fmt.Println(msg3, msg4, msg5)
 
 	// struct and method call
-	p := NewPerson("test", 123)
+	p := NewPerson(
+		"test",
+		123)
 	d := p
 	d.Hello()
 
-	// for debugging
-	fmt.Println(reflect.TypeOf(msg))
+	aaa := math.Pi
 
-	fmt.Println(strings.Index("hello, wo rl'\" d!", "l'\" d"))
+	// for debugging
+	fmt.Println(
+		reflect.TypeOf(msg), aaa)
+
+	fmt.Println(
+		strings.Index("hello, wo rl'\" d!",
+			"l'\" d"))
 
 	// TODO: remove "(,)"
-	if (("") == "a") || (1+1 == 2) {
+	if (("") ==
+		"a") ||
+		(1+1 == 2) {
 		fmt.Println("true")
 	}
+
+	if true {
+		fmt.Println("OK")
+	} else {
+		fmt.Println("Error")
+	}
+
+	if false {
+		fmt.Println("Error")
+	} else {
+		fmt.Println("OK")
+	}
+
+	v := 1
+	v <<= 10
+	fmt.Println(v)
+	v >>= 10
+	fmt.Println(v)
+	v *= 10
+	fmt.Println(v)
+	v /= 10
+	fmt.Println(v)
 }

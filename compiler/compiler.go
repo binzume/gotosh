@@ -754,8 +754,7 @@ func (s *state) procReturn() {
 
 func (s *state) compileFunc(name, shname string, args []string, argTypes []Type) shExpression {
 	previousFuncName := s.funcName
-	previousVars := map[string]TypedName{}
-	maps.Copy(previousVars, s.vars)
+	previousVars := maps.Clone(s.vars)
 	s.funcName = name
 	for i, n := range args {
 		argTypes[i] = Type(strings.Replace(string(argTypes[i]), "...", "[]", 1))
@@ -938,9 +937,7 @@ func (s *state) compile(endDepth int) {
 				s.procReturn()
 			case "func":
 				s.procFunc()
-			case "var":
-				s.procVar(nil)
-			case "const":
+			case "var", "const":
 				s.procVar(nil)
 			case "go":
 				s.Writeln(s.readExpression("", "", false).AsExec() + " &")

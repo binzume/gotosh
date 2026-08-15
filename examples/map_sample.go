@@ -17,4 +17,9 @@ func main() {
 	b := a
 	a["aaa"] = "bbb"
 	fmt.Println(b["aaa"], b["abc"])
+
+	m := map[string]string{"key": "value"}
+	for k, v := range m {
+		fmt.Println(k, v)
+	}
 }

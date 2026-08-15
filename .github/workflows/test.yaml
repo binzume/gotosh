@@ -18,23 +18,7 @@ jobs:
         go-version: 1.23
     - name: Build
       run: go build -v .
-    - name: Test hello_world
-      run: ./compare_output.sh hello_world
-    - name: Test fizz_buzz
-      run: ./compare_output.sh fizz_buzz
-    - name: Test for loop
-      run: ./compare_output.sh for_loop
-    - name: Test string_sample
-      run: ./compare_output.sh string_sample
-    - name: Test read_stdin
-      run: ./compare_output.sh read_stdin
+    - name: Test
+      run: go test -v ./compiler .
     - name: Test file_io
       run: ./compare_output.sh file_io
-    - name: Test math
-      run: ./compare_output.sh math_sample
-    - name: Test map
-      run: ./compare_output.sh map_sample
-    - name: Test lambda
-      run: ./compare_output.sh lambda_sample
-    - name: Test misc
-      run: ./compare_output.sh misc
