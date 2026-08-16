@@ -1,6 +1,7 @@
 package compiler
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -130,7 +131,17 @@ var InitBuiltInFuncs = func(s *state) {
 		"strconv.Itoa":     {retTypes: []Type{"string"}},
 		"shell.StatusCode": {retTypes: []Type{"int"}},
 		// slice
-		"len":    {retTypes: []Type{"int"}, applyFunc: func(e *shExpression, arg []string) { e.expr = "${#" + strings.Trim(trimQuote(arg[0]), "${}@") + "}" }},
+		"len": {retTypes: []Type{"int"}, applyFunc2: func(e *shExpression, args []*shExpression) {
+			if len(args) > 0 && len(args[0].retTypes) > 0 && s.IsType(args[0].retTypes[0], TYPE_MAP) {
+				if args[0].expr != "" {
+					e.expr = "${#" + args[0].expr + "[@]}"
+				} else {
+					e.expr = fmt.Sprint(len(args[0].values) / 2)
+				}
+			} else if len(args) > 0 {
+				e.expr = "${#" + strings.Trim(trimQuote(args[0].expr), "${}@") + "}"
+			}
+		}},
 		"append": {retTypes: []Type{"[]any"}},
 	}
 }

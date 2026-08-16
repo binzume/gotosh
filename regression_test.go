@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,12 +20,26 @@ var regressionExamples = []string{
 	"string_sample",
 	"file_io",
 	"math_sample",
-	"map_sample",
 	"lambda_sample",
 	"misc",
+	// bash only
+	"pointer_sample",
+	"map_sample",
 }
 
 const regressionTimeout = 30 * time.Second
+
+var regressionShell = flag.String("shell", defaultRegressionShell(), "shell command for regression tests")
+
+func defaultRegressionShell() string {
+	if shell := os.Getenv("TEST_SHELL"); shell != "" {
+		return shell
+	}
+	if runtime.GOOS == "windows" {
+		return "wsl bash"
+	}
+	return "bash"
+}
 
 func TestRegression(t *testing.T) {
 	input, err := os.ReadFile("go.mod")
@@ -62,12 +77,13 @@ func runCommand(t *testing.T, ctx context.Context, input []byte, name string, ar
 
 func runShell(t *testing.T, ctx context.Context, script []byte) []byte {
 	t.Helper()
-	args := []string{"-u", "-s", "--", "aa", "bb", "123", "456"}
-	command := "bash"
-	if runtime.GOOS == "windows" {
-		command = "wsl"
-		args = append([]string{"bash"}, args...)
+	parts := strings.Fields(*regressionShell)
+	if len(parts) == 0 {
+		t.Fatal("-shell must specify a command")
 	}
+	args := []string{"-u", "-s", "--", "aa", "bb", "123", "456"}
+	command := parts[0]
+	args = append(parts[1:], args...)
 	if _, err := exec.LookPath(command); err != nil {
 		t.Skipf("%s is required to run regression tests: %v", command, err)
 	}

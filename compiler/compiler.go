@@ -73,6 +73,7 @@ type shExpression struct {
 	declare    bool
 	values     []string // for array, slice, struct
 	applyFunc  func(f *shExpression, arg []string)
+	applyFunc2 func(f *shExpression, arg []*shExpression)
 	template   bool
 }
 
@@ -279,18 +280,16 @@ func funcType(args, ret []Type) Type {
 }
 
 func (s *state) readType(scaned bool) Type {
-	if !scaned {
-		s.Scan()
+	if scaned {
+		s.skipNextScan = true
 	}
 	t := ""
-	if s.lastToken == scanner.Ident {
+	if tok := s.Scan(); tok == scanner.Ident {
 		t = s.TokenText()
 		if t == "map" {
 			s.Scan() // [
-			t += s.TokenText()
-			t += string(s.readType(false))
+			t += "[" + string(s.readType(false)) + "]"
 			s.Scan() // ]
-			t += s.TokenText()
 			t += string(s.readType(false))
 		} else if t == "func" {
 			_, argTypes := s.readFuncArgs(nil, nil)
@@ -327,15 +326,13 @@ func (s *state) readType(scaned bool) Type {
 		} else if _, ok := s.types[Type(s.packageName+"."+t)]; ok {
 			t = s.packageName + "." + t
 		}
-	} else if s.lastToken == '*' {
+	} else if tok == '*' {
 		t = s.TokenText()
 		t += string(s.readType(false))
-	} else if s.lastToken == '[' {
-		t = s.TokenText()
+	} else if tok == '[' {
 		s.readExpression("int", "]", false) // ignore array size
-		t += s.TokenText()
-		t += string(s.readType(false))
-	} else if s.lastToken == '.' {
+		t += "[]" + string(s.readType(false))
+	} else if tok == '.' {
 		s.Scan() // ...
 		s.Scan()
 		t = "..." + string(s.readType(false))
@@ -378,7 +375,7 @@ func (s *state) resolveType(t Type) Type {
 func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 	var args []*shExpression
 	if v, ok := s.vars[name]; ok && s.IsType(v.Type, "func(") {
-		name = "$" + name
+		name = "$" + name // TODO: parse retTypes
 	} else if p := strings.LastIndex(name, "."); p >= 0 {
 		ns := name[:p]
 		if v, ok := s.vars[ns]; ok {
@@ -411,25 +408,17 @@ func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 	}
 	e := &shExpression{expr: expr, typ: f.typ, retTypes: f.retTypes, primaryIdx: f.primaryIdx, stdout: f.stdout}
 
-	if name == "len" && f.expr == "" && len(args) == 1 && len(args[0].retTypes) == 1 && s.IsType(args[0].retTypes[0], TYPE_MAP) {
-		if args[0].expr != "" {
-			e.expr = "${#" + args[0].expr + "[@]}"
-		} else {
-			e.expr = fmt.Sprint(len(args[0].values) / 2)
-		}
-		f = shExpression{}
-		args = nil
+	if f.applyFunc2 != nil {
+		f.applyFunc2(e, args)
+		return e
 	}
 
 	var values []string
 	for _, e := range args {
 		for i, t := range e.retTypes {
-			if len(f.argTypes) > len(values) && s.IsType(f.argTypes[len(values)], TYPE_PTR) && !s.IsType(t, TYPE_PTR) && len(e.Values()) > 0 {
+			if len(f.argTypes) > len(values) && s.IsType(f.argTypes[len(values)], TYPE_PTR) && !s.IsType(t, TYPE_PTR) && e.expr != "" {
 				values = append(values, "\""+varName(e.expr)+"\"")
-				continue
-			}
-
-			if i == e.primaryIdx || i == 0 {
+			} else if i == e.primaryIdx || i == 0 {
 				values = append(values, e.Values()...)
 			} else if e.primaryIdx != i {
 				values = append(values, `"`+varValue(e.RetVarName(i))+`"`) // FIXME
@@ -535,6 +524,9 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			}
 			if vt, ok := s.vars[t]; ok {
 				expressionType = vt.Type
+				if derefPtr {
+					expressionType = Type(strings.TrimPrefix(string(expressionType), "*"))
+				}
 			}
 			ot := t
 			lt := t
@@ -577,9 +569,7 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			} else if expressionType == "string" || s.IsType(expressionType, TYPE_ARRAY) {
 				t = "\"" + varValue(t) + "\""
 			}
-			if derefPtr {
-				expressionType = Type(strings.TrimPrefix(string(expressionType), "*"))
-			} else if refPtr {
+			if refPtr {
 				t = "\"" + varName(t) + "\""
 				lt = t
 				expressionType = Type("*" + string(expressionType))
@@ -666,7 +656,9 @@ func (s *state) writeExpr(e *shExpression, typ Type) {
 			name := varName(e.lhs[i] + field.Name)
 			if s.IsType(s.vars[e.lhs[i]].Type, TYPE_MAP) && v == "" {
 				s.WriteString("typeset -A ")
-			} else if s.IsType(s.vars[e.lhs[i]].Type, TYPE_PTR) || s.IsType(s.vars[e.lhs[i]].Type, TYPE_MAP) {
+			} else if e.declare && s.IsType(s.vars[e.lhs[i]].Type, TYPE_PTR) ||
+				len(e.retTypes) > i && s.IsType(e.retTypes[i], TYPE_PTR) ||
+				s.IsType(s.vars[e.lhs[i]].Type, TYPE_MAP) {
 				s.WriteString("typeset -n ") // Need to re-declare for updating pointer as well.
 			} else if local {
 				s.WriteString("local ")
@@ -948,6 +940,7 @@ func (s *state) compile(endDepth int) {
 				s.writeExpr(s.readExpression("", "", true), "")
 			}
 		} else if tok == '*' || tok == '&' {
+			s.skipNextScan = true
 			s.writeExpr(s.readExpression("", "", true), "")
 		} else {
 			fmt.Printf("# Unknown token %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
