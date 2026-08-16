@@ -63,6 +63,7 @@ func Test_readType(t *testing.T) {
 		{"", "", scanner.EOF},
 		{"int=1", "int", '='},
 		{"[]int{}", "[]int", '{'},
+		{"[123+456]int{}", "[]int", '{'},
 		{"map[string]string{}", "map[string]string", '{'},
 		{"struct{Func func(string)} *", "struct{:Func:func(string):}", '*'},
 		{"func() {", "func()", '{'},
@@ -78,6 +79,7 @@ func Test_readType(t *testing.T) {
 		{"func(f func()) {", "func(func())", '{'},
 		{"func(A ...int) {", "func(...int)", '{'},
 		{"func(A ...int)\nvar a int", "func(...int)", scanner.Ident},
+		{"{", "", '{'},
 	}
 	for _, f := range fixture {
 		s := newState()
@@ -102,8 +104,9 @@ func Test_readExpression(t *testing.T) {
 		{"!true", shExpression{expr: "!1", typ: "INT_EXPR", retTypes: []Type{"bool"}}, scanner.EOF},
 		{"1.5 * 1.5", shExpression{expr: "1.5*1.5", typ: "FLOAT_EXPR", retTypes: []Type{"float32"}}, scanner.EOF},
 		{`"ABC" == "DEF"`, shExpression{expr: `"ABC" == "DEF"`, typ: "STR_CMP", retTypes: []Type{"bool"}}, scanner.EOF},
-		{`len(map[int][int]{1:2, 2:3})`, shExpression{expr: `2`, retTypes: []Type{"int"}}, scanner.EOF},
-		{`len(map[int][int]{})`, shExpression{expr: `0`, retTypes: []Type{"int"}}, scanner.EOF},
+		{`len([]int{1,2,3})`, shExpression{expr: `3`, retTypes: []Type{"int"}}, scanner.EOF},
+		{`len(map[int]int{1:2, 2:3})`, shExpression{expr: `2`, retTypes: []Type{"int"}}, scanner.EOF},
+		{`len(map[int]int{})`, shExpression{expr: `0`, retTypes: []Type{"int"}}, scanner.EOF},
 		{`[]int{1,2,3}`, shExpression{expr: ``, retTypes: []Type{"[]int"}, values: []string{"1", "2", "3"}}, scanner.EOF},
 		{`map[int]int{1:2}`, shExpression{expr: ``, retTypes: []Type{"map[int]int"}, values: []string{"1", "2"}}, scanner.EOF},
 		{`f(1,"abc", x, s)`, shExpression{expr: `f 1 "abc" $x "$s"`, typ: "", retTypes: []Type{"int"}}, scanner.EOF},
