@@ -169,6 +169,11 @@ func (s *state) PeekToken() rune {
 	return tok
 }
 
+func (s *state) ScanIdent() string {
+	s.Scan()
+	return s.TokenText()
+}
+
 func (s *state) ScanWC() rune {
 	s.Mode &^= scanner.SkipComments
 	s.Scan()
@@ -220,8 +225,7 @@ func (s *state) EndBlock() {
 func (s *state) parseImportPkg() {
 	if s.lastToken == scanner.Ident {
 		name := s.TokenText()
-		s.Scan()
-		s.imports[name] = trimQuote(s.TokenText())
+		s.imports[name] = trimQuote(s.ScanIdent())
 	} else {
 		pkg := trimQuote(s.TokenText())
 		s.imports[path.Base(pkg)] = pkg
@@ -320,9 +324,7 @@ func (s *state) readType(scaned bool) Type {
 			t += s.TokenText() // }
 		} else if _, ok := s.imports[t]; ok {
 			s.Scan() // .
-			t += s.TokenText()
-			s.Scan()
-			t += s.TokenText()
+			t += "." + s.ScanIdent()
 		} else if _, ok := s.types[Type(s.packageName+"."+t)]; ok {
 			t = s.packageName + "." + t
 		}
@@ -702,8 +704,7 @@ func (s *state) procVar(names []string) {
 		prefix = s.packageName + "."
 	}
 	for ; len(names) == 0 || s.lastToken == ','; s.Scan() {
-		s.Scan()
-		names = append(names, prefix+s.TokenText())
+		names = append(names, prefix+s.ScanIdent())
 	}
 	var typ = s.readType(true)
 	e := &shExpression{}
@@ -800,9 +801,9 @@ func (s *state) procFunc() {
 	name := s.TokenText()
 	if tok == '(' {
 		args, argTypes = s.readFuncArgs(nil, nil)
-		s.Scan() // name
+		name = s.ScanIdent()
 		if len(args) > 0 {
-			name = strings.TrimPrefix(string(argTypes[0]), "*") + "." + s.TokenText()
+			name = strings.TrimPrefix(string(argTypes[0]), "*") + "." + name
 		}
 	}
 	args, argTypes = s.readFuncArgs(args, argTypes)
@@ -903,15 +904,12 @@ func (s *state) compile(endDepth int) {
 		} else if tok == scanner.Ident {
 			switch t := s.TokenText(); t {
 			case "package":
-				s.Scan()
-				s.packageName = s.TokenText()
+				s.packageName = s.ScanIdent()
 			case "import":
 				s.parseImport()
 			case "type":
-				s.Scan()
-				name := s.TokenText()
-				s.Scan()
-				s.types[Type(s.packageName+"."+name)] = s.readType(s.lastToken != '=')
+				name := s.ScanIdent()
+				s.types[Type(s.packageName+"."+name)] = s.readType(s.Scan() != '=')
 			case "for":
 				s.procFor()
 			case "if":
