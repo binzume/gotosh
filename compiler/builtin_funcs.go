@@ -50,18 +50,10 @@ var InitBuiltInFuncs = func(s *state) {
 		"fmt.Fprintln": {applyFunc: func(e *shExpression, arg []string) { e.expr = "echo " + strings.Join(arg[1:], " ") + " >&" + arg[0] }},
 		"fmt.Fprintf":  {applyFunc: func(e *shExpression, arg []string) { e.expr = "printf " + strings.Join(arg[1:], " ") + " >&" + arg[0] }},
 		// strings
-		"strings.ReplaceAll": {expr: "\"${{*0}//{1}/{2}}\"", retTypes: []Type{"string"}, template: true},
-		"strings.ToUpper":    {expr: "echo {0}|tr '[:lower:]' '[:upper:]'", retTypes: []Type{"string"}, stdout: true, template: true},
-		"strings.ToLower":    {expr: "echo {0}|tr '[:upper:]' '[:lower:]'", retTypes: []Type{"string"}, stdout: true, template: true},
-		"strings.TrimSpace":  {expr: "echo {0}|sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'", retTypes: []Type{"string"}, stdout: true, template: true},
-		"strings.TrimPrefix": {expr: "\"${{*0}#{1}}\"", retTypes: []Type{"string"}, template: true},
-		"strings.TrimSuffix": {expr: "\"${{*0}%{1}}\"", retTypes: []Type{"string"}, template: true},
 		"strings.Split": {retTypes: []Type{"[]string"}, stdout: true, applyFunc: func(e *shExpression, arg []string) {
 			e.expr = "IFS=" + arg[1] + " _tmp0=(" + trimQuote(arg[0]) + ") ;echo \"${_tmp0[@]}\""
 		}},
-		"strings.Join":     {expr: "IFS={1} {0R}=\"${{*0}[*]}\"", retTypes: []Type{"string"}, primaryIdx: -1, template: true},
-		"strings.Contains": {expr: "case {0} in (*{1}*) echo 1;; (*) echo 0;; esac", retTypes: []Type{"bool"}, stdout: true, template: true},
-		"strings.IndexAny": {expr: "expr '(' index {0} {1} ')' - 1", retTypes: []Type{"int"}, stdout: true, template: true},
+		"strings.Join": {expr: "IFS={1} {0R}=\"${{*0}[*]}\"", retTypes: []Type{"string"}, primaryIdx: -1, template: true},
 		// os
 		"os.Stdin":    {expr: "0", typ: "VALUE", retTypes: []Type{"*os.File"}},
 		"os.Stdout":   {expr: "1", typ: "VALUE", retTypes: []Type{"*os.File"}},

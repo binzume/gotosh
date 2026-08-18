@@ -54,6 +54,90 @@ func main() {
 	}
 }
 
+func TestRuntimeIndexAny(t *testing.T) {
+	const src = `package main
+import "strings"
+func main() {
+  println(strings.IndexAny("abc", "xyc"))
+}`
+	s := newState()
+	var out bytes.Buffer
+	s.w = &out
+	if err := s.Compile(strings.NewReader(src), "runtime_test.go"); err != nil {
+		t.Fatal(err)
+	}
+	s.emitUsedRuntime()
+	got := out.String()
+	if !strings.Contains(got, "GOTOSH_RT_strings__IndexAny() {") {
+		t.Fatalf("runtime function was not emitted:\n%s", got)
+	}
+	if !strings.Contains(got, `local s="$1" chars="$2" ch i`) {
+		t.Fatalf("runtime body was not emitted:\n%s", got)
+	}
+	if strings.Contains(got, "expr '(' index") {
+		t.Fatalf("GNU expr implementation is still present:\n%s", got)
+	}
+	if strings.Index(got, "GOTOSH_RT_strings__IndexAny() {") < strings.Index(got, "main() {") {
+		t.Fatalf("runtime function was emitted before the main function:\n%s", got)
+	}
+}
+
+func TestRuntimeStringFunctions(t *testing.T) {
+	const src = `package main
+import "strings"
+func main() {
+  println(strings.ReplaceAll("a-b", "-", "_"))
+	println(strings.ToUpper("abc"))
+	println(strings.ToLower("ABC"))
+	println(strings.Contains("abc", "b"))
+	println(strings.Index("abc", "bc"))
+	println(strings.TrimSpace(" abc "))
+	println(strings.TrimPrefix("abc", "a"))
+	println(strings.TrimSuffix("abc", "c"))
+}`
+	s := newState()
+	var out bytes.Buffer
+	s.w = &out
+	if err := s.Compile(strings.NewReader(src), "runtime_strings_test.go"); err != nil {
+		t.Fatal(err)
+	}
+	s.emitUsedRuntime()
+	got := out.String()
+	for _, name := range []string{"ReplaceAll", "ToUpper", "ToLower", "Contains", "Index", "TrimSpace", "TrimPrefix", "TrimSuffix"} {
+		if !strings.Contains(got, "GOTOSH_RT_strings__"+name+"() {") {
+			t.Errorf("runtime function %s was not emitted:\n%s", name, got)
+		}
+	}
+}
+
+func TestRuntimeDependenciesAreBestEffort(t *testing.T) {
+	s := newState()
+	s.runtimeDefs = map[string]runtimeDefinition{}
+	s.runtimeDefs["test.A"] = runtimeDefinition{
+		Body: ":", Requires: []string{"test.B", "test.Missing"},
+	}
+	s.runtimeDefs["test.B"] = runtimeDefinition{
+		Body: ":", Requires: []string{"test.A"},
+	}
+	s.funcs["test.A"] = shExpression{
+		expr:     "GOTOSH_RT_test__A",
+		funcUsed: true,
+	}
+	s.funcs["test.B"] = shExpression{
+		expr: "GOTOSH_RT_test__B",
+	}
+	var out bytes.Buffer
+	s.w = &out
+	s.emitUsedRuntime()
+	got := out.String()
+	if strings.Count(got, "GOTOSH_RT_test__A() {") != 1 || strings.Count(got, "GOTOSH_RT_test__B() {") != 1 {
+		t.Fatalf("cyclic runtime dependencies were not emitted once:\n%s", got)
+	}
+	if strings.Contains(got, "Missing") {
+		t.Fatalf("missing runtime dependency was emitted:\n%s", got)
+	}
+}
+
 func Test_readType(t *testing.T) {
 	fixture := []struct {
 		src  string

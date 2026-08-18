@@ -75,6 +75,7 @@ type shExpression struct {
 	applyFunc  func(f *shExpression, arg []string)
 	applyFunc2 func(f *shExpression, arg []*shExpression)
 	template   bool
+	funcUsed   bool
 }
 
 func (f *shExpression) AsValue() string {
@@ -123,6 +124,7 @@ type state struct {
 	scanner.Scanner
 	imports      map[string]string
 	funcs        map[string]shExpression
+	runtimeDefs  map[string]runtimeDefinition
 	vars         map[string]TypedName
 	types        map[Type]Type
 	cl           []string
@@ -401,6 +403,8 @@ func (s *state) readFuncCall(name string, invoke bool) *shExpression {
 	expr := strings.ReplaceAll(name, ".", "__")
 	f, ok := s.funcs[name]
 	if ok {
+		f.funcUsed = true
+		s.funcs[name] = f
 		if f.typ != "VALUE" && !invoke {
 			return &shExpression{expr: expr, retTypes: []Type{funcType(f.argTypes, f.retTypes)}}
 		}
@@ -948,6 +952,9 @@ func (s *state) compile(endDepth int) {
 }
 
 func (s *state) Compile(r io.Reader, srcName string) error {
+	if err := s.loadRuntimeDefinitions(); err != nil {
+		return err
+	}
 	s.Init(r)
 	s.Filename = srcName
 	s.imports = map[string]string{}
@@ -971,6 +978,7 @@ func CompileFiles(sources []string) error {
 		}
 	}
 	if f, ok := s.funcs["main.main"]; ok {
+		s.emitUsedRuntime()
 		s.Writeln(f.expr + " \"${@}\"")
 	}
 	return nil
