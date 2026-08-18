@@ -27,8 +27,8 @@ func main() {
 	}
 
 	for i := 1; ; i++ {
-		s, status := shell.ReadLine(r)
-		if status != 0 {
+		s, statusCode := shell.ReadLine(r)
+		if statusCode != 0 {
 			break
 		}
 		printLine(i, s)
