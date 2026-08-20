@@ -1,0 +1,5 @@
+{
+  "arg_types": ["string", "string", "string"],
+  "ret_types": ["string", "StatusCode"],
+  "requires": ["jqjson.Filter"]
+}
