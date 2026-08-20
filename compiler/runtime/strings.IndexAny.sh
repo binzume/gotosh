@@ -1,7 +1,7 @@
 local s="$1" chars="$2" ch i
 i=0
 while [ "$i" -lt "${#s}" ]; do
-  ch=${s:i:1}
+  ch=${s:$i:1}
   case "$chars" in
     *"$ch"*) printf '%d\n' "$i"; return 0 ;;
   esac
