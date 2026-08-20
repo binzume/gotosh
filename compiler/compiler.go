@@ -171,8 +171,15 @@ func (s *state) PeekToken() rune {
 	return tok
 }
 
+func (s *state) ScanToken(t rune) rune {
+	if s.Scan(); s.lastToken != t {
+		fmt.Fprintf(os.Stderr, "Unexpected token %s: %s (expected %s)\n", s.Position, s.TokenText(), scanner.TokenString(t))
+	}
+	return s.lastToken
+}
+
 func (s *state) ScanIdent() string {
-	s.Scan()
+	s.ScanToken(scanner.Ident)
 	return s.TokenText()
 }
 
@@ -293,9 +300,9 @@ func (s *state) readType(scaned bool) Type {
 	if tok := s.Scan(); tok == scanner.Ident {
 		t = s.TokenText()
 		if t == "map" {
-			s.Scan() // [
+			s.ScanToken('[')
 			t += "[" + string(s.readType(false)) + "]"
-			s.Scan() // ]
+			s.ScanToken(']')
 			t += string(s.readType(false))
 		} else if t == "func" {
 			_, argTypes := s.readFuncArgs(nil, nil)
@@ -310,7 +317,7 @@ func (s *state) readType(scaned bool) Type {
 			}
 			return funcType(argTypes, retTypes)
 		} else if t == "struct" {
-			tok := s.Scan() // {
+			tok := s.ScanToken('{')
 			n := 0
 			for ; tok != '}' && tok != scanner.EOF; tok = s.Scan() {
 				if tok == ';' || tok == scanner.RawString || tok == scanner.String {
@@ -325,7 +332,7 @@ func (s *state) readType(scaned bool) Type {
 			}
 			t += s.TokenText() // }
 		} else if _, ok := s.imports[t]; ok {
-			s.Scan() // .
+			s.ScanToken('.')
 			t += "." + s.ScanIdent()
 		} else if _, ok := s.types[Type(s.packageName+"."+t)]; ok {
 			t = s.packageName + "." + t
@@ -337,8 +344,8 @@ func (s *state) readType(scaned bool) Type {
 		s.readExpression("int", "]", false) // ignore array size
 		t += "[]" + string(s.readType(false))
 	} else if tok == '.' {
-		s.Scan() // ...
-		s.Scan()
+		s.ScanToken('.')
+		s.ScanToken('.')
 		t = "..." + string(s.readType(false))
 	} else {
 		s.skipNextScan = true
@@ -518,8 +525,8 @@ func (s *state) readExpression(typeHint Type, endToks string, allowAssign bool) 
 			t = s.TokenText()
 			for tok := s.Scan(); tok == '.'; tok = s.Scan() {
 				if s.Scan() == '.' {
-					s.Scan() // ...
-					s.Scan()
+					s.ScanToken('.')
+					s.ScanToken('.')
 					break
 				}
 				t += "." + s.TokenText()
@@ -772,7 +779,7 @@ func (s *state) compileFunc(name, shname string, args []string, argTypes []Type)
 			}
 		}
 	}
-	s.Scan() // {
+	s.ScanToken('{')
 	s.Writeln(f.expr + "() {")
 	s.cl = append(s.cl, "}")
 	for i, arg := range args {

@@ -52,8 +52,11 @@ func TestRegression(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), regressionTimeout)
 			defer cancel()
 
-			script := runCommand(t, ctx, input, "go", "run", ".", filepath.Join("examples", name+".go"))
-			want := runCommand(t, ctx, input, "go", "run", filepath.Join("examples", name+".go"), "aa", "bb", "123", "456")
+			script, transpileStderr := runCommand(t, ctx, input, "go", "run", ".", filepath.Join("examples", name+".go"))
+			if transpileStderr != "" {
+				t.Errorf("transpiler wrote to stderr: %q", transpileStderr)
+			}
+			want, _ := runCommand(t, ctx, input, "go", "run", filepath.Join("examples", name+".go"), "aa", "bb", "123", "456")
 			got := runShell(t, ctx, script)
 			if !bytes.Equal(want, got) {
 				t.Errorf("output mismatch (-want +got):\nwant:\n%s\ngot:\n%s", want, got)
@@ -62,7 +65,7 @@ func TestRegression(t *testing.T) {
 	}
 }
 
-func runCommand(t *testing.T, ctx context.Context, input []byte, name string, args ...string) []byte {
+func runCommand(t *testing.T, ctx context.Context, input []byte, name string, args ...string) ([]byte, string) {
 	t.Helper()
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Stdin = bytes.NewReader(input)
@@ -72,7 +75,7 @@ func runCommand(t *testing.T, ctx context.Context, input []byte, name string, ar
 	if err != nil {
 		t.Fatalf("%s failed: %v\n%s", strings.Join(cmd.Args, " "), err, stderr.String())
 	}
-	return out
+	return out, stderr.String()
 }
 
 func runShell(t *testing.T, ctx context.Context, script []byte) []byte {
