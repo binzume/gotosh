@@ -19,6 +19,7 @@ var regressionExamples = []string{
 	"for_loop",
 	"string_sample",
 	"file_io",
+	"exec_pipe",
 	"math_sample",
 	"lambda_sample",
 	"misc",

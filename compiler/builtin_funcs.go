@@ -9,9 +9,25 @@ import (
 // TODO: export types to modify from outside
 var InitBuiltInFuncs = func(s *state) {
 	s.funcs = map[string]shExpression{
-		"nil":                 {expr: "0", typ: "VALUE", retTypes: []Type{""}},
-		"true":                {expr: "1", typ: "VALUE", retTypes: []Type{"bool"}},
-		"false":               {expr: "0", typ: "VALUE", retTypes: []Type{"bool"}},
+		"nil":   {expr: "0", typ: "VALUE", retTypes: []Type{""}},
+		"true":  {expr: "1", typ: "VALUE", retTypes: []Type{"bool"}},
+		"false": {expr: "0", typ: "VALUE", retTypes: []Type{"bool"}},
+		"shell.Bind": {retTypes: []Type{"StageCall"}, primaryIdx: 0, applyFunc: func(e *shExpression, arg []string) {
+			if len(arg) == 0 {
+				e.expr = ""
+				return
+			}
+			e.expr = strings.Join(append([]string{arg[0], "0", "1"}, arg[1:]...), " ")
+		}},
+		"shell.ExecPipe": {retTypes: []Type{"StatusCode"}, primaryIdx: -1, applyFunc: func(e *shExpression, arg []string) {
+			commands := make([]string, 0, len(arg))
+			for _, command := range arg {
+				if command != "" {
+					commands = append(commands, command)
+				}
+			}
+			e.expr = strings.Join(commands, " | ")
+		}},
 		"shell.Sleep":         {expr: "sleep"},
 		"shell.Exit":          {expr: "exit"},
 		"shell.Export":        {expr: "export"},

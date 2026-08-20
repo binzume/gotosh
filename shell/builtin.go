@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -14,6 +15,23 @@ type TempVarInt = int
 type TempVarString = string
 
 type StatusCode byte
+
+// Stage is one streaming stage in an ExecPipe. The first two arguments are
+// the input and output file descriptors. Additional arguments are stage-specific
+// values supplied with Bind.
+type Stage func(in, out *os.File, args ...string) StatusCode
+
+// StageCall is the Go runtime representation of a bound stage. The
+// transpiler handles Bind and ExecPipe specially and does not emit this value into
+// the generated shell script.
+type StageCall struct {
+	fn   Stage
+	args []string
+}
+
+func Bind(fn Stage, args ...string) StageCall {
+	return StageCall{fn: fn, args: args}
+}
 
 func (s StatusCode) Error() string {
 	return strconv.Itoa(int(s))
@@ -88,6 +106,57 @@ func Args() []string {
 
 func SetArgs(args ...string) {
 	currentArgs = args
+}
+
+// ExecPipe connects all stages with OS pipes and runs them concurrently. The
+// status code follows normal shell pipeline semantics: the last stage's code
+// is returned.
+func ExecPipe(stages ...StageCall) StatusCode {
+	if len(stages) == 0 {
+		return 0
+	}
+
+	inputs := make([]*os.File, len(stages))
+	outputs := make([]*os.File, len(stages))
+	statuses := make([]StatusCode, len(stages))
+	inputs[0] = os.Stdin
+	outputs[len(stages)-1] = os.Stdout
+
+	var created []*os.File
+	for i := 0; i < len(stages)-1; i++ {
+		r, w, err := os.Pipe()
+		if err != nil {
+			for _, f := range created {
+				_ = f.Close()
+			}
+			return 1
+		}
+		inputs[i+1] = r
+		outputs[i] = w
+		created = append(created, r, w)
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(len(stages))
+	for i, stage := range stages {
+		go func(i int, stage StageCall) {
+			defer wg.Done()
+			if inputs[i] != os.Stdin {
+				defer inputs[i].Close()
+			}
+			if outputs[i] != os.Stdout {
+				defer outputs[i].Close()
+			}
+			if stage.fn == nil {
+				statuses[i] = 1
+				return
+			}
+			statuses[i] = stage.fn(inputs[i], outputs[i], stage.args...)
+		}(i, stage)
+	}
+
+	wg.Wait()
+	return statuses[len(statuses)-1]
 }
 
 func Do(rawScript string) StatusCode {
