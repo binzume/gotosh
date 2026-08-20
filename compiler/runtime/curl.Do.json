@@ -1,0 +1,4 @@
+{
+  "arg_types": ["string", "string", "string", "...string"],
+  "ret_types": ["string", "StatusCode"]
+}
