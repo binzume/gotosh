@@ -681,7 +681,7 @@ func (s *state) writeExpr(e *shExpression, typ Type) {
 					tv = "0"
 				}
 				if local && statusIndex >= 0 {
-					s.Writeln(name) // to avoid 'local' modify status code
+					s.Writeln(name + "=") // to avoid 'local' modify status code
 				}
 				s.Writeln(name + "=" + tv)
 			}
@@ -906,36 +906,39 @@ func (s *state) compile(endDepth int) {
 				s.Writeln("# " + c)
 			}
 		} else if tok == scanner.Ident {
-			switch t := s.TokenText(); t {
-			case "package":
+			t := s.TokenText()
+			switch {
+			case t == "package" && len(s.cl) == 0:
 				s.packageName = s.ScanIdent()
-			case "import":
+			case t == "import" && len(s.cl) == 0:
 				s.parseImport()
-			case "type":
+			case t == "func" && len(s.cl) == 0:
+				s.procFunc()
+			case t == "type":
 				name := s.ScanIdent()
 				s.types[Type(s.packageName+"."+name)] = s.readType(s.Scan() != '=')
-			case "for":
+			case t == "var", t == "const":
+				s.procVar(nil)
+			case len(s.cl) == 0:
+				fmt.Fprintf(os.Stderr, "Unknown token %s: %s\n", s.Position, s.TokenText())
+			case t == "for":
 				s.procFor()
-			case "if":
+			case t == "if":
 				s.procIf()
-			case "else":
+			case t == "else":
 				s.procElse()
-			case "break":
+			case t == "break":
 				s.Writeln("break")
-			case "continue":
+			case t == "continue":
 				if len(s.loopInfo) > 0 {
 					s.writeExpr(s.loopInfo[len(s.loopInfo)-1].continueProc, "")
 				}
 				s.Writeln("continue")
-			case "return":
+			case t == "return":
 				s.procReturn()
-			case "func":
-				s.procFunc()
-			case "var", "const":
-				s.procVar(nil)
-			case "go":
+			case t == "go":
 				s.Writeln(s.readExpression("", "", false).AsExec() + " &")
-			case "defer":
+			case t == "defer":
 				s.Writeln("# defer " + s.readExpression("", "", false).AsExec())
 			default:
 				s.skipNextScan = true
@@ -945,7 +948,7 @@ func (s *state) compile(endDepth int) {
 			s.skipNextScan = true
 			s.writeExpr(s.readExpression("", "", true), "")
 		} else {
-			fmt.Printf("# Unknown token %s: %s %s\n", s.Position, s.TokenText(), scanner.TokenString(tok))
+			fmt.Fprintf(os.Stderr, "Unknown token %s: %s\n", s.Position, s.TokenText())
 		}
 	}
 	s.FlushLine()
